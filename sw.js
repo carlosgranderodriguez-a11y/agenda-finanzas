@@ -1,5 +1,5 @@
 // Subir CACHE_VERSION en cada cambio de index.html
-const CACHE_VERSION = 'af-v2';
+const CACHE_VERSION = 'af-v3';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './widget.js'];
 
 self.addEventListener('install', e => {

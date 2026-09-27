@@ -156,7 +156,8 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v2';
+const VERSION = 'v3';
+const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
@@ -210,7 +211,7 @@ function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.ad
 
 /* ---------- state ---------- */
 const S = {
-  cfg: LS.get('af_cfg', { api: '', token: '', demo: true }),
+  cfg: LS.get('af_cfg', { api: DEFAULT_API, token: '', demo: true }),
   day: todayStr(),
   month: todayStr().slice(0, 7),
   filter: 'todos',
@@ -382,7 +383,12 @@ function afterRender(r) {
     const n = document.querySelector('.nowline'); if (n) n.scrollIntoView({ block: 'center' });
   }
 }
-const demoBanner = () => isDemo() ? `<div class="demo">Modo demo con datos de ejemplo · <a href="#ajustes">conecta tu Google Calendar y Sheet</a></div>` : '';
+const demoBanner = () => isDemo() ? `<div class="card stack" style="gap:10px;background:var(--warnbg)">
+  <b style="color:var(--warn)">Estás viendo datos de ejemplo</b>
+  <span style="font-size:13px;color:#5A3A00">Para ver tu Google Calendar y tus ingresos, pega tu clave. Está en tu Google Sheet → hoja <b>Config</b> → fila «TOKEN».</span>
+  <input class="in" id="qTok" placeholder="Pega aquí tu clave" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button class="btn dark" onclick="conectarRapido()">Conectar</button>
+</div>` : '';
 
 /* =================== AGENDA: HOY =================== */
 function weekEvents(mon) { return (S.agenda[mon] || []).filter(e => e && e.start); }
@@ -909,6 +915,13 @@ function setDemo(v) {
   S.cfg.demo = v; LS.set('af_cfg', S.cfg); resetData(); render();
 }
 function resetData() { S.agenda = {}; S.fin = null; S._finFresh = false; LS.set('af_agenda_cache', {}); LS.set('af_fin_cache', null); }
+async function conectarRapido() {
+  const tok = ($('#qTok').value || '').trim();
+  if (!tok) { toast('Pega tu clave'); return; }
+  S.cfg = { api: S.cfg.api || DEFAULT_API, token: tok, demo: false };
+  try { await api('ping'); LS.set('af_cfg', S.cfg); resetData(); toast('Conectado ✓'); render(); }
+  catch (e) { S.cfg.demo = true; toast(e.message === 'Clave incorrecta' ? 'Clave incorrecta: revisa que esté completa' : 'No conecta: ' + e.message); }
+}
 async function guardarConexion() {
   const url = $('#apiUrl').value.trim(), tok = $('#apiTok').value.trim();
   if (!/^https:\/\/script\.google(usercontent)?\.com\//.test(url)) { toast('La URL debe ser de script.google.com'); return; }
