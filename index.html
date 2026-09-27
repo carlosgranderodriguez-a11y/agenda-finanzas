@@ -156,7 +156,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v4';
+const VERSION = 'v5';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -351,7 +351,7 @@ async function loadFin(force) {
 function markStale() { Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
 
 /* ---------- router ---------- */
-const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
+const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
 function route() { const h = (location.hash || '#hoy').slice(1); return ROUTES[h] ? h : 'hoy'; }
 function go(h) { if (location.hash === '#' + h) render(); else location.hash = h; }
 window.addEventListener('hashchange', () => { closeSheet(); window.scrollTo(0, 0); render(); });
@@ -363,6 +363,7 @@ function render() {
   else if (r === 'semana') app.innerHTML = viewSemana();
   else if (r === 'resumen') app.innerHTML = viewResumen();
   else if (r === 'ingresos') app.innerHTML = viewIngresos();
+  else if (r === 'concepto') app.innerHTML = viewConcepto();
   else if (r === 'gastos') app.innerHTML = viewGastos();
   else if (r === 'clientes') app.innerHTML = viewClientes();
   else if (r === 'ajustes') app.innerHTML = viewAjustes();
@@ -648,8 +649,9 @@ function viewResumen() {
     ${(() => { const bt = byTipo(st.I); const ks = Object.keys(bt).sort((a, b) => bt[b] - bt[a]); const yt = byTipo(ING().filter(i => (i.fecha || '').startsWith(yr)));
       return `<div class="card stack" style="gap:10px">
       <b style="font-size:14px">Por concepto</b>
+      <div class="chips">${tiposList().map(t => `<button class="chip" style="background:${tipoColor(t)}1A;color:${tipoColor(t)};height:32px;font-size:12px" onclick="S.tipoSel='${esc(t).replace(/'/g, '')}';go('concepto')">${esc(t)} ›</button>`).join('')}</div>
       ${ks.length ? `<div class="catbar">${ks.map(k => `<span style="flex:${bt[k]};background:${tipoColor(k)}"></span>`).join('')}</div>
-      <div class="col" style="gap:8px">${ks.map(k => `<button class="row" style="font-size:13px;gap:8px;border:0;background:none;padding:2px 0;text-align:left" onclick="S.tipoF='${esc(k).replace(/'/g, '')}';S.filter='todos';S.q='';go('ingresos')"><i style="width:9px;height:9px;border-radius:5px;background:${tipoColor(k)};flex:none"></i><span class="grow">${esc(tipoName(k))}<span class="muted" style="font-size:11px"> · ${yr}: ${eur0(yt[k] || 0)}</span></span><span class="muted" style="font-size:12px">${Math.round(bt[k] / st.ingresos * 100)}%</span><b style="width:74px;text-align:right">${eur0(bt[k])}</b></button>`).join('')}</div>` : `<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>`}
+      <div class="col" style="gap:8px">${ks.map(k => `<button class="row" style="font-size:13px;gap:8px;border:0;background:none;padding:2px 0;text-align:left" onclick="S.tipoSel='${esc(k).replace(/'/g, '')}';go('concepto')"><i style="width:9px;height:9px;border-radius:5px;background:${tipoColor(k)};flex:none"></i><span class="grow">${esc(tipoName(k))}<span class="muted" style="font-size:11px"> · ${yr}: ${eur0(yt[k] || 0)}</span></span><span class="muted" style="font-size:12px">${Math.round(bt[k] / st.ingresos * 100)}%</span><b style="width:74px;text-align:right">${eur0(bt[k])}</b></button>`).join('')}</div>` : `<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>`}
     </div>`; })()}
     <div class="card stack" style="gap:10px">
       <b style="font-size:14px">Quién te paga este mes</b>
@@ -682,6 +684,7 @@ function viewIngresos() {
     </div>
     <div class="chips">${chip('todos', 'Todos')}${chip('pendientes', 'Te deben')}${chip('sinfactura', 'Sin facturar')}${chip('cobrados', 'Cobrados')}</div>
     <div class="chips">${tchip('', 'Todos los conceptos')}${tiposList().map(t => tchip(t, t)).join('')}</div>
+    ${tf ? `<button class="btn" style="height:42px" onclick="S.tipoSel='${esc(tf).replace(/'/g, '')}';go('concepto')">Ver ${esc(tf)} por cliente ›</button>` : ''}
     <input class="in" type="search" placeholder="Buscar cliente o concepto" aria-label="Buscar" value="${esc(S.q || '')}" oninput="S.q=this.value;clearTimeout(S._qt);S._qt=setTimeout(()=>{render();const i=document.querySelector('input[type=search]');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
     <div class="card" style="padding:4px 14px">
       ${shown.length ? shown.map(i => { const c = clienteOf(i.cliente_id); const fd = parseD(i.fecha);
@@ -748,6 +751,98 @@ async function borrarIngreso(id) {
   if (!confirm('¿Borrar este ingreso?')) return;
   try { await api('deleteIngreso', { data: { id } }); S.fin.ingresos = S.fin.ingresos.filter(x => x.id !== id); LS.set('af_fin_cache', S.fin); closeSheet(); toast('Borrado'); render(); }
   catch (e) { toast(e.message); }
+}
+
+/* =================== CONCEPTO (p. ej. Planificaciones) =================== */
+// última cantidad que un cliente pagó por un concepto (para rellenar)
+function lastPart(cid, tipo, beforeYm) {
+  const arr = ING().filter(i => i.cliente_id === cid && (!beforeYm || (i.fecha || '').slice(0, 7) < beforeYm) && lineasOf(i).some(l => l.tipo === tipo)).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  return arr.length ? partOf(arr[0], tipo) : 0;
+}
+function viewConcepto() {
+  if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
+  const t = S.tipoSel || tiposList()[0], ym = S.month, md = parseD(ym + '-01'), col = tipoColor(t);
+  const I = ING().filter(i => (i.fecha || '').slice(0, 7) === ym && lineasOf(i).some(l => l.tipo === t));
+  const by = {}; I.forEach(i => { const o = by[i.cliente_id] = by[i.cliente_id] || { v: 0, ids: [], pend: 0 }; o.v += partOf(i, t); o.ids.push(i.id); if (!cobrado(i)) o.pend += partOf(i, t); });
+  const rows = Object.keys(by).map(id => ({ id, c: clienteOf(id), ...by[id] })).sort((a, b) => b.v - a.v);
+  const total = rows.reduce((s, r) => s + r.v, 0), pend = rows.reduce((s, r) => s + r.pend, 0);
+  // clientes que tuvieron este concepto antes y aún no están este mes
+  const hist = [...new Set(ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id))];
+  const faltan = hist.filter(id => !by[id] && S.fin.clientes.some(c => c.id === id));
+  const yr = ym.slice(0, 4);
+  const anual = ING().filter(i => (i.fecha || '').startsWith(yr)).reduce((s, i) => s + partOf(i, t), 0);
+  return `<div class="stack">
+    ${demoBanner()}
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button>
+      <div class="chips grow">${tiposList().map(x => `<button class="chip ${x === t ? 'on' : ''}" style="${x === t ? '' : `background:${tipoColor(x)}1A;color:${tipoColor(x)}`}" onclick="S.tipoSel='${esc(x).replace(/'/g, '')}';render()">${esc(x)}</button>`).join('')}</div></div>
+    <div class="row between">
+      <button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button>
+      <h1 style="font-size:22px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()}</h1>
+      <button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button>
+    </div>
+    <div class="hero" style="background:${col}">
+      <span style="font-size:13px;font-weight:700;color:#ffffffcc">${esc(t)}</span>
+      <span class="big" style="font-size:42px">${eur0(total)}</span>
+      <div class="row" style="gap:8px;flex-wrap:wrap;font-size:13px;color:#ffffffdd"><span>${rows.length} cliente${rows.length === 1 ? '' : 's'}</span><span>·</span><span>${pend ? 'te deben ' + eur0(pend) : 'todo cobrado'}</span><span>·</span><span>${yr}: ${eur0(anual)}</span></div>
+    </div>
+    <button class="btn dark" onclick="sheetLote()">Apuntar el mes${faltan.length ? ' · faltan ' + faltan.length : ''}</button>
+    <div class="card" style="padding:4px 14px">
+      ${rows.length ? rows.map(r => `<button class="li" onclick="${r.ids.length === 1 ? `sheetVerIngreso('${r.ids[0]}')` : `S.tipoF='${esc(t).replace(/'/g, '')}';S.q='${esc(r.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')`}"><span class="av" style="background:${r.c.color || '#6B6E75'}22;color:${r.c.color || '#6B6E75'}">${esc(initials(r.c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(r.c.nombre)}</b><span class="muted" style="font-size:12px">${r.ids.length > 1 ? r.ids.length + ' apuntes' : ''}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(r.v)}</b><span class="badge ${r.pend ? 'b-warn' : 'b-ok'}">${r.pend ? 'Debe' : 'Cobrado'}</span></span></button>`).join('') : `<div class="empty">Nada apuntado en ${esc(t)} este mes.</div>`}
+      ${faltan.map(id => { const c = clienteOf(id), v = lastPart(id, t); return `<div class="li" style="opacity:.75"><span class="av" style="background:var(--soft);color:var(--muted)">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Sin apuntar este mes · última vez ${eur(v)}</span></span><button class="chip" style="background:var(--dark);color:#fff" onclick="apuntarUno('${id}')">+ ${eur(v)}</button></div>`; }).join('')}
+    </div>
+    ${total ? `<div class="catbar">${rows.map(r => `<span style="flex:${r.v};background:${r.c.color || '#6B6E75'}"></span>`).join('')}</div>` : ''}
+  </div>`;
+}
+function fechaDelMes() { return S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01'; }
+function nuevoIngresoDe(cid, tipo, imp) {
+  return { id: uid(), fecha: fechaDelMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: '' }]) };
+}
+async function apuntarUno(cid) {
+  const t = S.tipoSel || tiposList()[0]; const v = lastPart(cid, t);
+  if (!v) { toast('Sin importe previo: usa el +'); return; }
+  try { await saveIng(nuevoIngresoDe(cid, t, v), 'Apuntado'); render(); } catch (e) { toast(e.message); }
+}
+let LOTE = null;
+function sheetLote() {
+  const t = S.tipoSel || tiposList()[0];
+  const ya = new Set(ING().filter(i => (i.fecha || '').slice(0, 7) === S.month && lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id));
+  const hist = new Set(ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id));
+  LOTE = S.fin.clientes.filter(c => !ya.has(c.id)).map(c => ({ id: c.id, nombre: c.nombre, on: hist.has(c.id), imp: String(lastPart(c.id, t) || num(c.tarifa) || '') }))
+    .sort((a, b) => (b.on - a.on) || a.nombre.localeCompare(b.nombre));
+  renderLote();
+}
+function renderLote() {
+  const t = S.tipoSel || tiposList()[0];
+  const tot = LOTE.filter(x => x.on).reduce((s, x) => s + num(x.imp), 0);
+  openSheet(`<div class="stack">
+    <div class="row between"><h1 style="font-size:22px">${esc(t)}</h1><span class="muted" style="font-size:13px;text-transform:capitalize">${MESES[parseD(S.month + '-01').getMonth()]}</span></div>
+    <span class="muted" style="font-size:13px">Marca los clientes que planificas este mes y revisa el importe. Se apuntan como <b>pendientes de cobro</b>.</span>
+    ${LOTE.length ? `<div class="col" style="gap:8px">${LOTE.map((x, k) => `<div class="row" style="gap:10px;background:var(--bg);border-radius:14px;padding:6px 10px">
+      <input type="checkbox" id="lt${k}" ${x.on ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--dark);flex:none" onchange="LOTE[${k}].on=this.checked;updLote()">
+      <label for="lt${k}" class="grow" style="font-size:14px;font-weight:600">${esc(x.nombre)}</label>
+      <input class="in" aria-label="Importe de ${esc(x.nombre)}" inputmode="decimal" value="${esc(x.imp)}" placeholder="€" style="width:100px;background:var(--card);font-weight:700;text-align:right" oninput="LOTE[${k}].imp=this.value;updLote()">
+    </div>`).join('')}</div>` : `<div class="empty">Todos tus clientes ya están apuntados este mes.</div>`}
+    <button type="button" class="btn" style="background:var(--bg);height:42px" onclick="sheetCliente(null)">+ Nuevo cliente</button>
+    <div class="totals"><div class="row between"><b>Total ${esc(t)}</b><span class="big" style="font-size:28px" id="loteTot">${eur(tot)}</span></div></div>
+    <button class="btn primary" id="loteBtn" onclick="guardarLote()">Apuntar ${LOTE.filter(x => x.on && num(x.imp)).length} clientes</button>
+  </div>`);
+}
+function updLote() {
+  const sel = LOTE.filter(x => x.on && num(x.imp));
+  $('#loteTot').textContent = eur(sel.reduce((s, x) => s + num(x.imp), 0));
+  $('#loteBtn').textContent = 'Apuntar ' + sel.length + ' cliente' + (sel.length === 1 ? '' : 's');
+}
+async function guardarLote() {
+  const t = S.tipoSel || tiposList()[0];
+  const sel = LOTE.filter(x => x.on && num(x.imp));
+  if (!sel.length) { toast('Marca al menos un cliente'); return; }
+  const btn = $('#loteBtn'); btn.disabled = true;
+  let n = 0;
+  for (const x of sel) {  // de uno en uno: Apps Script duplica si se le mandan muchas a la vez
+    btn.innerHTML = '<span class="spin"></span> ' + (++n) + '/' + sel.length;
+    try { await saveIng(nuevoIngresoDe(x.id, t, x.imp)); } catch (e) { toast(x.nombre + ': ' + e.message); btn.disabled = false; return; }
+  }
+  closeSheet(); toast(sel.length + ' apuntados en ' + t); render();
 }
 
 /* ---- nuevo / editar ingreso ---- */
