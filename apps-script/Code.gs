@@ -13,7 +13,7 @@
 
 var SHEETS = {
   Clientes: ['id', 'nombre', 'nif', 'email', 'tarifa', 'color', 'notas'],
-  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas'],
+  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas', 'lineas'],
   Gastos: ['id', 'fecha', 'concepto', 'categoria', 'importe'],
   Categorias: ['id', 'nombre', 'fg', 'bg', 'palabras_clave', 'calendario'],
   Config: ['clave', 'valor']
@@ -109,6 +109,15 @@ function handle_(p) {
 function sheet_(name) {
   var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);
   if (!sh) { setup(); sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name); }
+  var head = SHEETS[name];
+  if (head) {
+    // añade columnas nuevas al final si la hoja es de una versión anterior
+    var cur = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), 1)).getDisplayValues()[0];
+    if (cur.join('|') !== head.join('|')) {
+      sh.getRange(1, 1, 1, head.length).setValues([head]).setFontWeight('bold');
+      sh.getRange(2, 1, Math.max(sh.getMaxRows() - 1, 1), head.length).setNumberFormat('@');
+    }
+  }
   return sh;
 }
 

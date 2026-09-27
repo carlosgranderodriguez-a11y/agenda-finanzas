@@ -156,7 +156,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v3';
+const VERSION = 'v4';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -215,6 +215,7 @@ const S = {
   day: todayStr(),
   month: todayStr().slice(0, 7),
   filter: 'todos',
+  tipoF: '',
   agenda: {},           // monday -> events
   cats: LS.get('af_cats', DEFAULT_CATS),
   fin: LS.get('af_fin_cache', null),
@@ -280,13 +281,14 @@ function demoSeed() {
       const imp = Math.round(num(c.tarifa) * (cid === 'c4' ? 1 : factor) / 10) * 10;
       const pend = (k === 0 && (cid === 'c1' || cid === 'c4')) || (k === 1 && cid === 'c4');
       const fact = k >= 2 || (k === 1 && cid !== 'c4') ;
-      ingresos.push({ id: uid(), fecha: f, cliente_id: cid, concepto: 'Mensualidad ' + mes, importe: String(imp), cobrado: pend ? 'no' : 'si', fecha_cobro: pend ? '' : f, facturado: fact ? 'si' : 'no', num_factura: '', notas: '' });
+      const lin = cid === 'c2' ? [{ tipo: 'Entrenamientos personales', importe: Math.round(imp * 2 / 3 / 10) * 10, detalle: 'Sesiones fuerza' }, { tipo: 'Best Athletes', importe: imp - Math.round(imp * 2 / 3 / 10) * 10, detalle: '' }] : [{ tipo: 'Planificaciones mensuales', importe: imp, detalle: '' }];
+      ingresos.push({ id: uid(), fecha: f, cliente_id: cid, concepto: mes, importe: String(imp), cobrado: pend ? 'no' : 'si', fecha_cobro: pend ? '' : f, facturado: fact ? 'si' : 'no', num_factura: '', notas: '', lineas: JSON.stringify(lin) });
     });
     const nses = Math.round(10 * factor);
     for (let s = 0; s < Math.min(nses, 4); s++) {
       const fd = ymd(new Date(now.getFullYear(), now.getMonth() - k, 3 + s * 6));
       if (fd > todayStr()) continue;
-      ingresos.push({ id: uid(), fecha: fd, cliente_id: 'c5', concepto: 'Readaptación · ' + ['Marco', 'Lucía', 'Pablo', 'Irene'][s] + ' (3 sesiones)', importe: '180', cobrado: 'si', fecha_cobro: fd, facturado: k >= 1 ? 'si' : 'no', num_factura: '', notas: '' });
+      ingresos.push({ id: uid(), fecha: fd, cliente_id: 'c5', concepto: ['Marco', 'Lucía', 'Pablo', 'Irene'][s] + ' · 3 sesiones', importe: '180', cobrado: 'si', fecha_cobro: fd, facturado: k >= 1 ? 'si' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: 'Entrenamientos personales', importe: 180, detalle: 'Readaptación' }]) });
     }
   }
   const gastos = [];
@@ -296,9 +298,9 @@ function demoSeed() {
     gastos.push({ id: uid(), fecha: addDays(ymd(d), 7), concepto: 'Gasolina desplazamientos', categoria: 'Transporte', importe: String(140 + (k % 3) * 20) });
     if (k % 3 === 0) gastos.push({ id: uid(), fecha: addDays(ymd(d), 12), concepto: 'Material (bandas, conos)', categoria: 'Material', importe: '120' });
   }
-  return { events, clientes, ingresos, gastos, cats: DEFAULT_CATS, config: { calendarios: '', calendario_nuevos: '' } };
+  return { events, clientes, ingresos, gastos, cats: DEFAULT_CATS, config: { calendarios: '', calendario_nuevos: '', tipos_ingreso: TIPOS_DEF.join(', ') } };
 }
-function demoDB() { let db = LS.get('af_demo_db', null); if (!db || db.v !== 2) { db = demoSeed(); db.v = 2; LS.set('af_demo_db', db); } return db; }
+function demoDB() { let db = LS.get('af_demo_db', null); if (!db || db.v !== 3) { db = demoSeed(); db.v = 3; LS.set('af_demo_db', db); } return db; }
 async function demoApi(action, p) {
   await new Promise(r => setTimeout(r, 120));
   const db = demoDB(); const d = p.data || {};
@@ -589,6 +591,19 @@ function monthStats(ym) {
 }
 function finLoading() { return !S.fin ? `<div class="empty"><span class="spin"></span> Cargando finanzas…</div>` : ''; }
 const sumI = arr => arr.reduce((s, i) => s + num(i.importe), 0);
+const TIPOS_DEF = ['Planificaciones mensuales', 'Entrenamientos personales', 'Best Athletes'];
+const TIPO_COLORS = ['#2F3F9E', '#1B5E48', '#A8471A', '#7A4E00', '#5E3F82', '#2D6A7A', '#9E2A17'];
+function tiposList() { const t = String(S.fin?.config?.tipos_ingreso || '').split(',').map(x => x.trim()).filter(Boolean); return t.length ? t : TIPOS_DEF; }
+const tipoColor = t => { const i = tiposList().indexOf(t); return i < 0 ? '#8A8D94' : TIPO_COLORS[i % TIPO_COLORS.length]; };
+const tipoName = t => t || 'Sin tipo';
+function lineasOf(i) {
+  let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
+  if (!Array.isArray(L) || !L.length) L = [{ tipo: '', importe: num(i.importe), detalle: '' }];
+  return L.map(l => ({ tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }));
+}
+// importe de un ingreso que corresponde a un tipo concreto (o todo si no hay filtro)
+const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).reduce((s, l) => s + l.importe, 0) : num(i.importe);
+function byTipo(arr) { const o = {}; arr.forEach(i => lineasOf(i).forEach(l => o[l.tipo] = (o[l.tipo] || 0) + l.importe)); return o; }
 
 /* =================== FINANZAS: RESUMEN =================== */
 function viewResumen() {
@@ -630,6 +645,12 @@ function viewResumen() {
       <div class="row between"><b style="font-size:14px">Últimos 12 meses</b><span class="muted" style="font-size:12px">media ${eur0(avg)} · ${yr}: ${eur0(anual)}</span></div>
       <div class="bars">${months.map((m, i) => `<button class="${m === ym ? 'on' : ''}" aria-label="${MESES[parseD(m + '-01').getMonth()]}: ${eur0(vals[i])}" onclick="S.month='${m}';render()"><span style="height:${Math.round(vals[i] / max * 88)}px"></span><span>${MES_C[parseD(m + '-01').getMonth()][0].toUpperCase()}</span></button>`).join('')}</div>
     </div>
+    ${(() => { const bt = byTipo(st.I); const ks = Object.keys(bt).sort((a, b) => bt[b] - bt[a]); const yt = byTipo(ING().filter(i => (i.fecha || '').startsWith(yr)));
+      return `<div class="card stack" style="gap:10px">
+      <b style="font-size:14px">Por concepto</b>
+      ${ks.length ? `<div class="catbar">${ks.map(k => `<span style="flex:${bt[k]};background:${tipoColor(k)}"></span>`).join('')}</div>
+      <div class="col" style="gap:8px">${ks.map(k => `<button class="row" style="font-size:13px;gap:8px;border:0;background:none;padding:2px 0;text-align:left" onclick="S.tipoF='${esc(k).replace(/'/g, '')}';S.filter='todos';S.q='';go('ingresos')"><i style="width:9px;height:9px;border-radius:5px;background:${tipoColor(k)};flex:none"></i><span class="grow">${esc(tipoName(k))}<span class="muted" style="font-size:11px"> · ${yr}: ${eur0(yt[k] || 0)}</span></span><span class="muted" style="font-size:12px">${Math.round(bt[k] / st.ingresos * 100)}%</span><b style="width:74px;text-align:right">${eur0(bt[k])}</b></button>`).join('')}</div>` : `<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>`}
+    </div>`; })()}
     <div class="card stack" style="gap:10px">
       <b style="font-size:14px">Quién te paga este mes</b>
       ${cl.length ? `<div class="catbar">${cl.map(x => `<span style="flex:${x.v};background:${x.c.color || '#6B6E75'}"></span>`).join('')}</div>
@@ -645,24 +666,28 @@ function viewIngresos() {
   const all = [...ING()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
   const filt = { todos: () => true, pendientes: i => !cobrado(i), sinfactura: i => !facturado(i), cobrados: cobrado }[S.filter] || (() => true);
   const q = (S.q || '').toLowerCase();
-  const list = all.filter(filt).filter(i => !q || (clienteOf(i.cliente_id).nombre + ' ' + i.concepto + ' ' + (i.num_factura || '')).toLowerCase().includes(q));
+  const tf = S.tipoF || '';
+  const list = all.filter(filt).filter(i => !tf || lineasOf(i).some(l => l.tipo === tf)).filter(i => !q || (clienteOf(i.cliente_id).nombre + ' ' + i.concepto + ' ' + (i.num_factura || '') + ' ' + lineasOf(i).map(l => l.tipo + ' ' + l.detalle).join(' ')).toLowerCase().includes(q));
+  const sumP = arr => arr.reduce((s, i) => s + partOf(i, tf), 0);
+  const tchip = (k, t) => `<button class="chip ${tf === k ? 'on' : ''}" style="${tf === k ? '' : k ? `background:${tipoColor(k)}1A;color:${tipoColor(k)}` : ''}" onclick="S.tipoF='${esc(k).replace(/'/g, '')}';render()">${esc(t)}</button>`;
   const chip = (k, t) => `<button class="chip ${S.filter === k ? 'on' : ''}" onclick="S.filter='${k}';render()">${t}</button>`;
   const shown = list.slice(0, S.showAll ? 9999 : 50);
   const pend = all.filter(i => !cobrado(i)), sinFac = all.filter(i => !facturado(i));
   return `<div class="stack">
     ${demoBanner()}
-    <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px">Ingresos</h1><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumI(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
+    <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px">Ingresos</h1><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumP(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
     <div class="grid2">
       <div class="stat" style="background:var(--warnbg)"><span style="color:var(--warn)">Te deben</span><span>${eur0(sumI(pend))}</span></div>
       <div class="stat" style="background:#DCE1F6"><span style="color:var(--accent)">Sin facturar</span><span>${eur0(sumI(sinFac))}</span></div>
     </div>
     <div class="chips">${chip('todos', 'Todos')}${chip('pendientes', 'Te deben')}${chip('sinfactura', 'Sin facturar')}${chip('cobrados', 'Cobrados')}</div>
+    <div class="chips">${tchip('', 'Todos los conceptos')}${tiposList().map(t => tchip(t, t)).join('')}</div>
     <input class="in" type="search" placeholder="Buscar cliente o concepto" aria-label="Buscar" value="${esc(S.q || '')}" oninput="S.q=this.value;clearTimeout(S._qt);S._qt=setTimeout(()=>{render();const i=document.querySelector('input[type=search]');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
     <div class="card" style="padding:4px 14px">
       ${shown.length ? shown.map(i => { const c = clienteOf(i.cliente_id); const fd = parseD(i.fecha);
         return `<button class="li" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>
-        <span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</b><span class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fd.getDate()} ${MES_C[fd.getMonth()]} · ${esc(i.concepto || '—')}</span></span>
-        <span class="col" style="align-items:flex-end;gap:3px;flex:none"><b style="font-size:14px">${eur(num(i.importe))}</b><span class="row" style="gap:4px"><span class="badge ${cobrado(i) ? 'b-ok' : 'b-warn'}">${cobrado(i) ? 'Cobrado' : 'Debe'}</span>${facturado(i) ? '' : '<span class="badge" style="background:#DCE1F6;color:var(--accent)">Sin fact.</span>'}</span></span></button>`; }).join('') : `<div class="empty">Nada por aquí. Pulsa + para apuntar un ingreso.</div>`}
+        <span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</b><span class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fd.getDate()} ${MES_C[fd.getMonth()]} · ${esc(i.concepto || lineasOf(i).map(l => tipoName(l.tipo)).join(' + '))}</span><span class="row" style="gap:3px;margin-top:3px">${lineasOf(i).map(l => `<i title="${esc(tipoName(l.tipo))}" style="height:4px;border-radius:2px;flex:${Math.max(l.importe, 1)};max-width:90px;background:${tipoColor(l.tipo)}"></i>`).join('')}</span></span>
+        <span class="col" style="align-items:flex-end;gap:3px;flex:none"><b style="font-size:14px">${eur(partOf(i, tf))}</b>${tf && partOf(i, tf) !== num(i.importe) ? `<span class="muted" style="font-size:10px">de ${eur(num(i.importe))}</span>` : ''}<span class="row" style="gap:4px"><span class="badge ${cobrado(i) ? 'b-ok' : 'b-warn'}">${cobrado(i) ? 'Cobrado' : 'Debe'}</span>${facturado(i) ? '' : '<span class="badge" style="background:#DCE1F6;color:var(--accent)">Sin fact.</span>'}</span></span></button>`; }).join('') : `<div class="empty">Nada por aquí. Pulsa + para apuntar un ingreso.</div>`}
     </div>
     ${list.length > shown.length ? `<button class="btn" onclick="S.showAll=true;render()">Ver todos (${list.length})</button>` : ''}
   </div>`;
@@ -675,6 +700,7 @@ function sheetVerIngreso(id) {
     <div class="row" style="gap:6px"><span class="badge ${cobrado(i) ? 'b-ok' : 'b-warn'}">${cobrado(i) ? 'Cobrado' + (i.fecha_cobro ? ' · ' + fmtLong(i.fecha_cobro) : '') : 'Pendiente de cobro'}</span><span class="badge ${facturado(i) ? 'b-grey' : ''}" style="${facturado(i) ? '' : 'background:#DCE1F6;color:var(--accent)'}">${facturado(i) ? 'Facturado' + (i.num_factura ? ' · ' + esc(i.num_factura) : '') : 'Sin facturar'}</span></div>
     <h1 style="font-size:24px">${esc(c.nombre)}</h1>
     <div class="row between" style="align-items:flex-end"><span class="muted" style="white-space:pre-line">${esc(i.concepto || '')}<br>${fmtLong(i.fecha)}</span><span class="big" style="font-size:34px">${eur(num(i.importe))}</span></div>
+    <div class="col" style="gap:6px;background:var(--bg);border-radius:14px;padding:10px 12px">${lineasOf(i).map(l => `<div class="row" style="font-size:13px;gap:8px"><i style="width:9px;height:9px;border-radius:5px;background:${tipoColor(l.tipo)};flex:none"></i><span class="grow">${esc(tipoName(l.tipo))}${l.detalle ? `<span class="muted"> · ${esc(l.detalle)}</span>` : ''}</span><b>${eur(l.importe)}</b></div>`).join('')}</div>
     ${i.notas ? `<span class="muted" style="font-size:13px;white-space:pre-line">${esc(i.notas)}</span>` : ''}
     <div class="grid2">
       ${cobrado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','cobrado')">Marcar como no cobrado</button>` : `<button class="btn primary" onclick="toggleIng('${i.id}','cobrado')">Ya me ha pagado</button>`}
@@ -730,7 +756,10 @@ function sheetIngreso(id) {
   if (!S.fin) { toast('Cargando finanzas…'); loadFin(); return; }
   const src = id ? ING().find(x => x.id === id) : null;
   const cli0 = S.fin.clientes[0];
-  FF = src ? Object.assign({}, src) : { cliente_id: cli0 ? cli0.id : '', fecha: todayStr(), concepto: '', importe: cli0 && cli0.tarifa ? cli0.tarifa : '', cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '' };
+  FF = src ? Object.assign({}, src) : { cliente_id: '', fecha: todayStr(), concepto: '', importe: '', cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '' };
+  FF._lin = src ? lineasOf(src).map(l => Object.assign({}, l, { importe: l.importe ? String(l.importe) : '' })) : [{ tipo: tiposList()[0], importe: '', detalle: '' }];
+  FF._touched = !!src;
+  if (!src && cli0) { pickCliente(cli0.id, true); }
   renderIngresoSheet();
 }
 function renderIngresoSheet() {
@@ -741,8 +770,17 @@ function renderIngresoSheet() {
       <div class="chips" style="flex-wrap:wrap">${S.fin.clientes.map(c => `<button type="button" class="chip ${FF.cliente_id === c.id ? 'on' : ''}" style="${FF.cliente_id === c.id ? '' : 'background:var(--bg)'}" onclick="pickCliente('${c.id}')">${esc(c.nombre)}</button>`).join('')}
       <button type="button" class="chip" style="background:var(--bg)" onclick="sheetCliente(null,true)">+ Cliente</button></div>
     </div>
-    <label class="f">¿Cuánto? (€)<input class="in" name="importe" inputmode="decimal" required value="${esc(FF.importe)}" style="height:56px;font-family:var(--display);font-size:26px;font-weight:800" oninput="FF.importe=this.value"></label>
-    <label class="f">Concepto<input class="in" value="${esc(FF.concepto)}" oninput="FF.concepto=this.value" placeholder="Ej. 8 sesiones octubre · mensualidad"></label>
+    <div class="col" style="gap:8px"><div class="row between"><span class="eyebrow">¿Por qué concepto?</span><span class="big" style="font-size:24px" id="ffTot">${eur(linTotal())}</span></div>
+      ${FF._lin.map((l, k) => `<div class="col" style="gap:8px;background:var(--bg);border-radius:16px;padding:10px">
+        <div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${l.tipo === t ? 'on' : ''}" style="height:32px;padding:0 10px;font-size:12px;${l.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="FF._lin[${k}].tipo='${esc(t).replace(/'/g, '')}';FF._touched=true;renderIngresoSheet()">${esc(t)}</button>`).join('')}</div>
+        <div class="row" style="gap:8px">
+          <input class="in" aria-label="Importe" inputmode="decimal" placeholder="€" value="${esc(l.importe)}" style="width:110px;flex:none;background:var(--card);font-weight:700;font-size:17px" oninput="FF._lin[${k}].importe=this.value;FF._touched=true;updTotal()">
+          <input class="in" aria-label="Detalle" placeholder="Detalle (opcional)" value="${esc(l.detalle)}" style="background:var(--card)" oninput="FF._lin[${k}].detalle=this.value">
+          ${FF._lin.length > 1 ? `<button type="button" class="iconbtn" aria-label="Quitar concepto" style="background:var(--card)" onclick="FF._lin.splice(${k},1);renderIngresoSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` : ''}
+        </div></div>`).join('')}
+      <button type="button" class="btn" style="background:var(--bg);height:42px" onclick="FF._lin.push({tipo:'${esc(tiposList()[0]).replace(/'/g, '')}',importe:'',detalle:''});FF._touched=true;renderIngresoSheet()">+ Dividir en otro concepto</button>
+    </div>
+    <label class="f">Descripción (opcional)<input class="in" value="${esc(FF.concepto)}" oninput="FF.concepto=this.value" placeholder="Ej. octubre · 8 sesiones"></label>
     <label class="f">Fecha del trabajo<input class="in" type="date" value="${esc(FF.fecha)}" onchange="FF.fecha=this.value" required></label>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span>${yn('cobrado', 'Sí, cobrado', 'No, me debe')}</div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Le has hecho factura?</span>${yn('facturado', 'Sí', 'Todavía no')}</div>
@@ -751,16 +789,25 @@ function renderIngresoSheet() {
     <button type="submit" class="btn primary">Guardar</button>
   </form>`);
 }
-function pickCliente(id) {
-  const c = clienteOf(id); const prevC = clienteOf(FF.cliente_id);
-  if (!FF.importe || FF.importe === prevC.tarifa) FF.importe = c.tarifa || '';
-  FF.cliente_id = id; renderIngresoSheet();
+function linTotal() { return FF._lin.reduce((s, l) => s + num(l.importe), 0); }
+function updTotal() { const t = $('#ffTot'); if (t) t.textContent = eur(linTotal()); }
+function pickCliente(id, silent) {
+  const c = clienteOf(id);
+  FF.cliente_id = id;
+  if (!FF.id && !FF._touched) {
+    // copia el desglose del último ingreso de ese cliente; si no hay, su importe habitual
+    const last = ING().filter(i => i.cliente_id === id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
+    FF._lin = last ? lineasOf(last).map(l => ({ tipo: l.tipo || tiposList()[0], importe: l.importe ? String(l.importe) : '', detalle: l.detalle })) : [{ tipo: tiposList()[0], importe: c.tarifa || '', detalle: '' }];
+  }
+  if (!silent) renderIngresoSheet();
 }
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
-  if (!num(FF.importe)) { toast('Pon el importe'); return; }
-  const o = Object.assign({}, FF, { importe: String(num(FF.importe)) });
+  const lin = FF._lin.filter(l => num(l.importe)).map(l => ({ tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }));
+  if (!lin.length) { toast('Pon el importe'); return; }
+  const o = Object.assign({}, FF, { importe: String(lin.reduce((s, l) => s + l.importe, 0)), lineas: JSON.stringify(lin) });
+  delete o._lin; delete o._touched;
   if (o.cobrado === 'si' && !o.fecha_cobro) o.fecha_cobro = todayStr();
   if (o.cobrado !== 'si') o.fecha_cobro = '';
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
@@ -870,9 +917,9 @@ async function borrarCliente(id) {
 }
 
 function exportCSV() {
-  const rows = [['fecha', 'cliente', 'nif', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas']];
+  const rows = [['fecha', 'cliente', 'nif', 'descripcion', 'desglose', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas']];
   [...ING()].sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(i => { const c = clienteOf(i.cliente_id);
-    rows.push([i.fecha, c.nombre, c.nif || '', i.concepto, num(i.importe).toFixed(2), i.cobrado, i.fecha_cobro || '', i.facturado, i.num_factura || '', i.notas || '']); });
+    rows.push([i.fecha, c.nombre, c.nif || '', i.concepto, lineasOf(i).map(l => tipoName(l.tipo) + ': ' + l.importe.toFixed(2).replace('.', ',') + (l.detalle ? ' (' + l.detalle + ')' : '')).join(' | '), num(i.importe).toFixed(2), i.cobrado, i.fecha_cobro || '', i.facturado, i.num_factura || '', i.notas || '']); });
   rows.push([]); rows.push(['GASTOS']); rows.push(['fecha', 'concepto', 'categoria', 'importe']);
   [...S.fin.gastos].sort((a, b) => a.fecha.localeCompare(b.fecha)).forEach(g => rows.push([g.fecha, g.concepto, g.categoria, num(g.importe).toFixed(2)]));
   const csv = rows.map(r => r.map(v => '"' + String(v).replace(/"/g, '""').replace(/^(-?\d+)\.(\d+)$/, '$1,$2') + '"').join(';')).join('\n');
@@ -891,6 +938,13 @@ function viewAjustes() {
       <label class="f">Clave (TOKEN)<input class="in" id="apiTok" style="background:var(--bg)" value="${esc(c.token)}" autocomplete="off"></label>
       <button class="btn dark" onclick="guardarConexion()">Guardar y probar conexión</button>
     </div>
+    ${S.fin ? `<div class="card stack">
+      <b>Conceptos de ingreso</b>
+      <span class="muted" style="font-size:13px">Separados por comas. El orden decide el color.</span>
+      <textarea class="in" id="tiposIn" style="background:var(--bg)">${esc(tiposList().join(', '))}</textarea>
+      <div class="legend">${tiposList().map(t => `<span><i style="background:${tipoColor(t)}"></i>${esc(t)}</span>`).join('')}</div>
+      <button class="btn dark" onclick="guardarTipos()">Guardar conceptos</button>
+    </div>` : ''}
     ${S.fin ? `<div class="card stack">
       <b>Agenda</b>
       <label class="f">Calendarios a mostrar<input class="in" style="background:var(--bg)" data-k="calendarios" value="${esc(cfg.calendarios)}" placeholder="Vacío = todos · o nombres separados por comas"></label>
@@ -928,6 +982,12 @@ async function guardarConexion() {
   S.cfg = { api: url, token: tok, demo: false };
   try { await api('ping'); LS.set('af_cfg', S.cfg); resetData(); toast('Conectado ✓'); go('hoy'); }
   catch (e) { S.cfg.demo = true; toast('No conecta: ' + e.message); }
+}
+async function guardarTipos() {
+  const v = $('#tiposIn').value.split(',').map(x => x.trim()).filter(Boolean).join(', ');
+  if (!v) { toast('Pon al menos un concepto'); return; }
+  try { await api('saveConfig', { data: { tipos_ingreso: v } }); S.fin.config = Object.assign(S.fin.config || {}, { tipos_ingreso: v }); LS.set('af_fin_cache', S.fin); toast('Conceptos guardados'); render(); }
+  catch (e) { toast(e.message); }
 }
 async function guardarEmisor() {
   const data = {}; document.querySelectorAll('[data-k]').forEach(i => data[i.dataset.k] = i.value.trim());
