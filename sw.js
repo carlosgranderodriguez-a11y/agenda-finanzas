@@ -1,5 +1,5 @@
 // Subir CACHE_VERSION en cada cambio de index.html
-const CACHE_VERSION = 'af-v6';
+const CACHE_VERSION = 'af-v7';
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './widget.js'];
 
 self.addEventListener('install', e => {
@@ -13,7 +13,7 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== location.origin) return;
   e.respondWith(
-    fetch(e.request).then(r => {
+    fetch(e.request, { cache: 'no-cache' }).then(r => {
       const copy = r.clone();
       caches.open(CACHE_VERSION).then(c => c.put(e.request, copy));
       return r;
