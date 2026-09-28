@@ -17,18 +17,18 @@ const OTRO = { id: 'otro', nombre: 'Otros', fg: '#4A4D55', bg: '#E6E3DC' }
 const DL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
-async function getData() {
+async function getData(timeout) {
   const fm = FileManager.local()
   const cache = fm.joinPath(fm.documentsDirectory(), 'agenda-finanzas-cache.json')
   try {
     const url = API + '?action=widget&token=' + encodeURIComponent(TOKEN)
-    const r = new Request(url); r.timeoutInterval = 20
+    const r = new Request(url); r.timeoutInterval = timeout || 20
     const j = await r.loadJSON()
     if (!j.ok) throw new Error(j.error)
-    fm.writeString(cache, JSON.stringify(j.data))
+    j.data._savedAt = new Date().toISOString(); fm.writeString(cache, JSON.stringify(j.data))
     return j.data
   } catch (e) {
-    if (fm.fileExists(cache)) { const d = JSON.parse(fm.readString(cache)); d._offline = true; return d }
+    if (fm.fileExists(cache)) { const d = JSON.parse(fm.readString(cache)); d._offline = true; if (d._savedAt) { const t = new Date(d._savedAt); d._saved = (t.toDateString() === new Date().toDateString() ? '' : t.getDate() + '/' + (t.getMonth() + 1) + ' ') + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') } return d }
     throw e
   }
 }
@@ -153,10 +153,56 @@ function large(d, w) {
   Object.keys(d.weekHours || {}).slice(0, 5).forEach(k => { const c = cat(d, k); txt(leg, '● ' + c.nombre + ' ' + hstr(d.weekHours[k]), 9, new Color(c.fg), 'bold') })
 }
 
+// ---------- vista al tocar el widget (dentro de Scriptable, funciona sin internet) ----------
+function esc(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
+function inAppHTML(d) {
+  const now = new Date(d.now)
+  const DIAS = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado']
+  const MESL = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
+  const nowS = d.now
+  const ev = d.today.map(e => {
+    const c = cat(d, e.cat), past = e.end < nowS, cur = e.start <= nowS && e.end > nowS
+    return `<div class="ev" style="background:${c.bg};color:${c.fg};opacity:${past ? .55 : 1};${cur ? 'outline:2px solid ' + c.fg : ''}">
+      <div class="k">${esc(e.cat === 'otro' ? 'Sin área' : c.nombre)} · ${e.start.slice(11, 16)}–${e.end.slice(11, 16)}${cur ? ' · AHORA' : ''}</div>
+      <div class="t">${esc(e.title)}</div>${e.location ? `<div class="s">${esc(e.location)}</div>` : ''}</div>`
+  }).join('') || '<div class="empty">Nada más en la agenda de hoy</div>'
+  const H0 = 7, H1 = 22, pct = h => ((Math.max(H0, Math.min(H1, h)) - H0) / (H1 - H0) * 100).toFixed(2)
+  const todayIdx = (now.getDay() + 6) % 7
+  const week = d.days.map((evs, i) => `<div class="wr"><b style="color:${i === todayIdx ? '#D9412B' : '#17181C'}">${DL[i]}</b><div class="tr">${evs.map(e => {
+    const [ah, am] = e.s.split(':').map(Number), [bh, bm] = e.e.split(':').map(Number)
+    const a = ah + am / 60, b = (bh + bm / 60) || 24
+    return `<i style="left:${pct(a)}%;width:${Math.max(pct(b) - pct(a), 1)}%;background:${cat(d, e.cat).fg}"></i>`
+  }).join('')}</div></div>`).join('')
+  const wh = d.weekHours || {}
+  const leg = Object.keys(wh).map(k => `<span><i style="background:${cat(d, k).fg}"></i>${esc(cat(d, k).nombre)} <b>${hstr(wh[k])} h</b></span>`).join('')
+  const work = d.today.filter(e => e.cat !== 'per' && e.cat !== 'otro').reduce((s, e) => s + (hrs(e.end) - hrs(e.start)), 0)
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>
+  body{margin:0;background:#F4F2ED;color:#17181C;font:15px -apple-system,system-ui,sans-serif;padding:max(20px,env(safe-area-inset-top)) 16px 40px}
+  h1{font-size:30px;margin:0;letter-spacing:-.02em} .e{font-size:12px;font-weight:700;color:#5C5F66;text-transform:uppercase;letter-spacing:.06em}
+  .row{display:flex;justify-content:space-between;align-items:flex-end} .card{background:#fff;border-radius:18px;padding:14px 16px;margin-top:14px}
+  .ev{border-radius:14px;padding:10px 12px;margin-top:8px} .k{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .t{font-size:15px;font-weight:700;color:#17181C;margin-top:2px} .s{font-size:12px;margin-top:2px} .empty{color:#5C5F66;padding:16px 0;text-align:center}
+  .wr{display:flex;align-items:center;gap:10px;margin-top:7px} .wr b{width:16px;font-size:12px} .tr{position:relative;flex:1;height:16px;background:#E6E2D9;border-radius:5px;overflow:hidden}
+  .tr i{position:absolute;top:0;bottom:0;border-radius:4px} .leg{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;margin-top:10px}
+  .leg i{display:inline-block;width:8px;height:8px;border-radius:4px;margin-right:4px}
+  .fin{background:#17181C;color:#fff} .big{font-size:34px;font-weight:800;letter-spacing:-.03em} .m{color:#A9ACB4;font-size:12px}
+  .off{background:#E6E3DC;border-radius:12px;padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:12px}
+  a.btn{display:block;text-align:center;background:#2F3F9E;color:#fff;text-decoration:none;font-weight:700;border-radius:16px;padding:15px;margin-top:18px}
+  </style></head><body>
+  ${d._offline ? `<div class="off">Sin conexión · datos guardados${d._saved ? ' de las ' + d._saved : ''}</div>` : ''}
+  <div class="row"><div><div class="e">${DIAS[now.getDay()]} · hoy</div><h1>${now.getDate()} ${MESL[now.getMonth()]}</h1></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">${hstr(work)} h</div><div class="m" style="color:#5C5F66">${d.today.length} bloques</div></div></div>
+  <div>${ev}</div>
+  <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
+  <div class="card fin"><div class="m">${MESL[now.getMonth()]}</div><div class="big">${eur(d.mes.ingresos || d.mes.facturado || 0)}</div><div class="m">ingresos del mes</div>
+    <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben ${eur(d.mes.pendiente || 0)}</div></div>
+  <a class="btn" href="${APP_URL}">Abrir la app completa</a>
+  </body></html>`
+}
+
 async function run() {
   const w = new ListWidget()
   w.setPadding(14, 14, 14, 14)
-  w.url = APP_URL
+  w.url = 'scriptable:///run/' + encodeURIComponent(Script.name())
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000)
   try {
     if (!API || !TOKEN) throw new Error('Rellena API y TOKEN arriba del script')
@@ -173,7 +219,13 @@ async function run() {
     const t = txt(w, e.message, 11, C.muted); t.lineLimit = 4
   }
   if (config.runsInWidget) Script.setWidget(w)
-  else await w.presentLarge()
+  else {
+    // abierto tocando el widget o desde Scriptable: vista completa (sin internet usa lo último guardado)
+    try {
+      const d = await getData(6)
+      const wv = new WebView(); await wv.loadHTML(inAppHTML(d)); await wv.present(true)
+    } catch (e) { await w.presentLarge() }
+  }
   Script.complete()
 }
 await run()

@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v8';
+const VERSION = 'v9';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -247,20 +247,76 @@ const titleHas = (e, c) => (e.title || '').toLowerCase().includes((c.nombre || '
 const isDemo = () => S.cfg.demo || !S.cfg.api;
 
 /* ---------- API ---------- */
-async function api(action, params = {}) {
-  if (isDemo()) return demoApi(action, params);
+async function apiRaw(action, params) {
   const body = JSON.stringify(Object.assign({ token: S.cfg.token, action }, params));
   const ctrl = new AbortController();
   const to = setTimeout(() => ctrl.abort(), 25000);
   try {
-    const r = await fetch(S.cfg.api, { method: 'POST', body, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ctrl.signal, redirect: 'follow' });
+    let r;
+    try { r = await fetch(S.cfg.api, { method: 'POST', body, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, signal: ctrl.signal, redirect: 'follow' }); }
+    catch (e) { const n = new Error(e.name === 'AbortError' ? 'El servidor tarda demasiado' : 'Sin conexión'); n.net = true; throw n; }
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'Error del servidor');
     return j.data;
-  } catch (e) {
-    if (e.name === 'AbortError') throw new Error('El servidor tarda demasiado');
-    throw e;
   } finally { clearTimeout(to); }
+}
+/* ---------- sin conexión: lo que guardas se pone en cola y se envía al volver ---------- */
+const WRITES = ['saveIngreso', 'deleteIngreso', 'saveGasto', 'deleteGasto', 'saveCliente', 'deleteCliente', 'saveConfig', 'saveCategoria', 'createEvent', 'deleteEvent', 'updateEvent'];
+const queue = () => LS.get('af_queue', []);
+function setOffline(v) { if (S.offline !== v) { S.offline = v; const b = document.getElementById('netbar'); if (b || v) render(); } }
+async function api(action, params = {}) {
+  if (isDemo()) return demoApi(action, params);
+  const isW = WRITES.includes(action);
+  if (isW && /^save/.test(action) && params.data && action !== 'saveConfig' && !params.data.id) params.data.id = uid();
+  if (isW && queue().length) {  // si ya hay cola, respeta el orden
+    if (navigator.onLine) await flushQueue();
+    if (queue().length) return enqueue(action, params);
+  }
+  try {
+    const r = await apiRaw(action, params);
+    if (!isW) { LS.set('af_lastsync', Date.now()); }
+    setOffline(false);
+    return r;
+  } catch (e) {
+    if (e.net) { setOffline(true); if (isW) return enqueue(action, params); }
+    throw e;
+  }
+}
+function enqueue(action, params) {
+  const q = queue(); q.push({ action, params, t: Date.now() }); LS.set('af_queue', q);
+  toast('Sin conexión: guardado en el móvil, se enviará al volver');
+  setTimeout(render, 0);
+  if (action === 'createEvent') return { id: 'tmp' + uid(), cal: 'Pendiente' };
+  if (/^delete/.test(action)) return { removed: 1 };
+  return params.data;
+}
+async function flushQueue() {
+  if (isDemo() || S._flushing) return;
+  let q = queue(); if (!q.length) return;
+  S._flushing = true;
+  try {
+    while (q.length) {
+      const it = q[0];
+      try { await apiRaw(it.action, it.params); }
+      catch (e) { if (e.net) { setOffline(true); break; } toast('No se pudo enviar un cambio: ' + e.message); }
+      q.shift(); LS.set('af_queue', q);
+    }
+    if (!q.length) { setOffline(false); toast('Cambios pendientes enviados ✓'); markStale(); render(); }
+  } finally { S._flushing = false; }
+}
+window.addEventListener('online', () => { flushQueue(); const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); });
+window.addEventListener('offline', () => setOffline(true));
+function netBar() {
+  if (isDemo()) return '';
+  const q = queue().length, off = S.offline || !navigator.onLine;
+  if (!off && !q) return '';
+  const ts = LS.get('af_lastsync', 0), d = ts ? new Date(ts) : null;
+  const cuando = d ? (ymd(d) === todayStr() ? 'de las ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) : 'del ' + d.getDate() + ' ' + MES_C[d.getMonth()]) : 'guardados';
+  return `<div id="netbar" class="row" style="gap:8px;background:${off ? '#E6E3DC' : 'var(--warnbg)'};color:${off ? '#3A3C42' : 'var(--warn)'};border-radius:12px;padding:8px 12px;font-size:12px;font-weight:600">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" style="flex:none">${off ? '<path d="M2 2l20 20M8.5 16.5a5 5 0 0 1 7 0M5 12.9a10 10 0 0 1 5-2.7M19 12.9a10 10 0 0 0-2.3-1.6M12 20h.01"/>' : '<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>'}</svg>
+    <span class="grow">${off ? 'Sin conexión · datos ' + cuando : 'Conexión recuperada'}${q ? ' · ' + q + ' cambio' + (q === 1 ? '' : 's') + ' por enviar' : ''}</span>
+    ${!off && q ? `<button class="chip" style="height:28px;background:var(--dark);color:#fff" onclick="flushQueue()">Enviar</button>` : ''}
+  </div>`;
 }
 
 /* ---------- DEMO backend (localStorage) ---------- */
@@ -358,7 +414,7 @@ async function loadWeek(mon, force) {
     if (r.categorias && r.categorias.length) { S.cats = r.categorias; LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
     LS.set('af_agenda_cache', keep);
-  } catch (e) { S._failW = S._failW || {}; S._failW[mon] = Date.now(); toast('Agenda: ' + e.message); }
+  } catch (e) { S._failW = S._failW || {}; S._failW[mon] = Date.now(); if (!e.net) toast('Agenda: ' + e.message); }
   finally { S.loadingWeek[mon] = false; render(); }
 }
 async function loadFin(force) {
@@ -367,7 +423,7 @@ async function loadFin(force) {
   if (!force && S._failF && Date.now() - S._failF < 30000) return;
   S.loadingFin = true; render();
   try { S.fin = await api('finanzas'); S._finFresh = true; LS.set('af_fin_cache', S.fin); }
-  catch (e) { S._failF = Date.now(); toast('Finanzas: ' + e.message); }
+  catch (e) { S._failF = Date.now(); if (!e.net) toast('Finanzas: ' + e.message); }
   finally { S.loadingFin = false; render(); }
 }
 S.monthEv = {}; S.loadingMonth = {};
@@ -421,12 +477,12 @@ function afterRender(r) {
     const n = document.querySelector('.nowline'); if (n) n.scrollIntoView({ block: 'center' });
   }
 }
-const demoBanner = () => isDemo() ? `<div class="card stack" style="gap:10px;background:var(--warnbg)">
+const demoBanner = () => !isDemo() ? netBar() : `<div class="card stack" style="gap:10px;background:var(--warnbg)">
   <b style="color:var(--warn)">Estás viendo datos de ejemplo</b>
   <span style="font-size:13px;color:#5A3A00">Para ver tu Google Calendar y tus ingresos, pega tu clave. Está en tu Google Sheet → hoja <b>Config</b> → fila «TOKEN».</span>
   <input class="in" id="qTok" placeholder="Pega aquí tu clave" autocomplete="off" autocapitalize="off" spellcheck="false">
   <button class="btn dark" onclick="conectarRapido()">Conectar</button>
-</div>` : '';
+</div>`;
 
 /* =================== AGENDA: HOY =================== */
 function weekEvents(mon) {
@@ -1335,9 +1391,10 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet()
 
 /* =================== INIT =================== */
 if (!location.hash) history.replaceState(null, '', '#hoy');
+setTimeout(flushQueue, 1500);
 render();
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); }
+  if (document.visibilityState === 'visible') { flushQueue(); const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); }
 });
 setInterval(() => { if (route() === 'hoy' && S.day === todayStr() && !$('#sheet').classList.contains('show')) render(); }, 60000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
