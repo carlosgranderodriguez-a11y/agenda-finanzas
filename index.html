@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v13';
+const VERSION = 'v14';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -820,7 +820,7 @@ function viewResumen() {
       <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span></button>
       <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='sinfactura';go('ingresos')"><span style="color:var(--accent)">Sin facturar · ${sinFac.length}</span><span>${eur0(sumI(sinFac))}</span></button>
     </div>
-    ${(() => { const L = bonosResumen(); if (!L.length) return ''; const ren = L.filter(x => x.st.quedan <= 1).length, deben = L.filter(x => x.st.sinBonoPast).length;
+    ${(() => { const L = bonosResumen(); if (!L.length) return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos y sesiones sueltas</b><span class="muted" style="font-size:12px">Vende un bono y ve cuántas sesiones le quedan a cada cliente</span></span><span style="font-size:20px">›</span></button>`; const ren = L.filter(x => x.st.quedan <= 1).length, deben = L.filter(x => x.st.sinBonoPast).length;
       return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos</b><span class="muted" style="font-size:12px">${L.length} cliente${L.length === 1 ? '' : 's'}${ren ? ' · <b style="color:var(--warn)">' + ren + ' por renovar</b>' : ''}${deben ? ' · <b style="color:var(--bad)">' + deben + ' con sesiones sin pagar</b>' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
     <div class="card stack" style="gap:10px">
       <div class="row between"><b style="font-size:14px">Últimos 12 meses</b><span class="muted" style="font-size:12px">media ${eur0(avg)} · ${yr}: ${eur0(anual)}</span></div>
@@ -1202,7 +1202,8 @@ function viewClientes() {
   return `<div class="stack">
     ${demoBanner()}
     <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Clientes</h1></div>
-    <button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button>
+    <div class="grid2"><button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button><button class="btn primary" onclick="go('bonos')">Bonos</button></div>
+    <span class="muted" style="font-size:12px">Toca un cliente para ver su ficha, sus bonos y las sesiones que le quedan.</span>
     <div class="card" style="padding:4px 14px">${list.length ? list.map(c => `<button class="li" onclick="sheetFicha('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${bonoTag(c.id) || (c.tarifa ? 'Habitual ' + eur(num(c.tarifa)) : 'Sin importe habitual')}${pend(c.id) ? ' · <span style="color:var(--warn);font-weight:700">debe ' + eur0(pend(c.id)) + '</span>' : ''}</span></span><span class="col" style="align-items:flex-end"><b>${eur0(tot(c.id))}</b><span class="muted" style="font-size:11px">en ${yr}</span></span></button>`).join('') : `<div class="empty">Aún no tienes clientes.</div>`}</div>
   </div>`;
 }
@@ -1418,8 +1419,10 @@ function viewBonos() {
     <div class="card" style="padding:4px 14px">${L.length ? L.map(x => { const a = x.st.activo;
       return `<button class="li" onclick="sheetFicha('${x.id}')"><span class="av" style="background:${x.c.color || '#6B6E75'}22;color:${x.c.color || '#6B6E75'}">${esc(initials(x.c.nombre))}</span>
       <span class="col grow" style="gap:5px"><b style="font-size:14px">${esc(x.c.nombre)}</b>${a ? dots(a.n, a.hechas, a.reservadas) : '<span class="muted" style="font-size:12px">Bono terminado</span>'}</span>
-      <span class="col" style="align-items:flex-end;gap:3px"><b class="big" style="font-size:22px;color:${x.st.quedan <= 1 ? 'var(--warn)' : 'var(--ink)'}">${x.st.quedan}</b><span class="muted" style="font-size:11px">quedan</span>${x.st.sinBonoPast ? `<span class="badge b-bad">${x.st.sinBonoPast} sin pagar</span>` : x.st.quedan <= 1 ? '<span class="badge b-warn">Renovar</span>' : ''}</span></button>`; }).join('') : `<div class="empty">Aún no has vendido bonos. Entra en un cliente (Resumen → Clientes) y pulsa «Vender bono».</div>`}</div>
-    <button class="btn" onclick="go('clientes')">Ir a clientes</button>
+      <span class="col" style="align-items:flex-end;gap:3px"><b class="big" style="font-size:22px;color:${x.st.quedan <= 1 ? 'var(--warn)' : 'var(--ink)'}">${x.st.quedan}</b><span class="muted" style="font-size:11px">quedan</span>${x.st.sinBonoPast ? `<span class="badge b-bad">${x.st.sinBonoPast} sin pagar</span>` : x.st.quedan <= 1 ? '<span class="badge b-warn">Renovar</span>' : ''}</span></button>`; }).join('') : `<div class="empty">Aún no has vendido bonos. Elige un cliente abajo y pulsa «+ Bono».</div>`}</div>
+    ${(() => { const con = new Set(L.map(x => x.id)); const sin = [...S.fin.clientes].filter(c => !con.has(c.id)).sort((a, b) => a.nombre.localeCompare(b.nombre));
+      return sin.length ? `<span class="eyebrow">Clientes sin bono</span><div class="card" style="padding:4px 14px">${sin.map(c => `<div class="li"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><button class="col grow" style="gap:1px;border:0;background:none;text-align:left;padding:0" onclick="sheetFicha('${c.id}')"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Ver ficha</span></button><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetVenta('${c.id}',${num(metaOf(c.id).nbono) || 4})">+ Bono</button><button class="chip" style="background:var(--bg)" onclick="sheetVenta('${c.id}',1)">Suelta</button></div>`).join('')}</div>` : ''; })()}
+    <button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button>
   </div>`;
 }
 function sheetFicha(cid) {
