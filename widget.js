@@ -205,7 +205,7 @@ async function run() {
   w.url = 'scriptable:///run/' + encodeURIComponent(Script.name())
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000)
   try {
-    if (!API || !TOKEN) throw new Error('Rellena API y TOKEN arriba del script')
+    if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo. O escribe tu clave en la línea const TOKEN = \'\' de arriba.')
     const d = await getData()
     const fam = config.widgetFamily || 'large'
     const param = (args.widgetParameter || '').toLowerCase()

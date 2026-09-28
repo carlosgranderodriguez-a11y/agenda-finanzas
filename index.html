@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v9';
+const VERSION = 'v10';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1324,12 +1324,22 @@ async function guardarEmisor() {
   try { const c = await api('saveConfig', { data }); S.fin.config = Object.assign(S.fin.config || {}, data, c || {}); LS.set('af_fin_cache', S.fin); markStale(); toast('Guardado'); }
   catch (e) { toast(e.message); }
 }
+function widgetCode(code) {
+  return code.replace("const API = ''", "const API = '" + (S.cfg.api || DEFAULT_API) + "'").replace("const TOKEN = ''", "const TOKEN = '" + (S.cfg.token || '') + "'").replace(/const APP_URL = '[^']*'/, "const APP_URL = '" + location.href.split('#')[0].split('?')[0] + "'");
+}
 async function copiarWidget() {
+  if (isDemo() || !S.cfg.token) { toast('Primero conecta la app con tu clave (arriba)'); return; }
+  const p = fetch('widget.js', { cache: 'no-store' }).then(r => r.text()).then(widgetCode);
   try {
-    const r = await fetch('widget.js'); let code = await r.text();
-    code = code.replace("const API = ''", "const API = '" + (S.cfg.api || '') + "'").replace("const TOKEN = ''", "const TOKEN = '" + (S.cfg.token || '') + "'").replace(/const APP_URL = '[^']*'/, "const APP_URL = '" + location.href.split('#')[0] + "'");
-    await navigator.clipboard.writeText(code); toast('Código copiado. Pégalo en Scriptable');
-  } catch (e) { toast('No se pudo copiar: abre widget.js'); }
+    // Safari exige copiar dentro del mismo toque: ClipboardItem con promesa
+    if (window.ClipboardItem && navigator.clipboard && navigator.clipboard.write) {
+      await navigator.clipboard.write([new ClipboardItem({ 'text/plain': p.then(t => new Blob([t], { type: 'text/plain' })) })]);
+    } else { await navigator.clipboard.writeText(await p); }
+    toast('Código copiado ✓ Pégalo en Scriptable');
+  } catch (e) {
+    const code = await p;
+    openSheet(`<div class="stack"><h1 style="font-size:22px">Código del widget</h1><span class="muted" style="font-size:13px">Mantén pulsado dentro del recuadro → Seleccionar todo → Copiar, y pégalo en Scriptable.</span><textarea class="in" readonly style="min-height:320px;font-family:ui-monospace,monospace;font-size:11px;background:var(--bg)">${esc(code)}</textarea></div>`);
+  }
 }
 
 /* =================== ÁREAS DE LA AGENDA =================== */
