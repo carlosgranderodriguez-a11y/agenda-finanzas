@@ -17,20 +17,31 @@ const OTRO = { id: 'otro', nombre: 'Otros', fg: '#4A4D55', bg: '#E6E3DC' }
 const DL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
-async function getData(timeout) {
-  const fm = FileManager.local()
-  const cache = fm.joinPath(fm.documentsDirectory(), 'agenda-finanzas-cache.json')
+const FM = FileManager.local()
+const CACHE = FM.joinPath(FM.documentsDirectory(), 'agenda-finanzas-cache.json')
+function readCache() {
+  if (!FM.fileExists(CACHE)) return null
   try {
-    const url = API + '?action=widget&token=' + encodeURIComponent(TOKEN)
-    const r = new Request(url); r.timeoutInterval = timeout || 20
-    const j = await r.loadJSON()
-    if (!j.ok) throw new Error(j.error)
-    j.data._savedAt = new Date().toISOString(); fm.writeString(cache, JSON.stringify(j.data))
-    return j.data
-  } catch (e) {
-    if (fm.fileExists(cache)) { const d = JSON.parse(fm.readString(cache)); d._offline = true; if (d._savedAt) { const t = new Date(d._savedAt); d._saved = (t.toDateString() === new Date().toDateString() ? '' : t.getDate() + '/' + (t.getMonth() + 1) + ' ') + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') } return d }
-    throw e
-  }
+    const d = JSON.parse(FM.readString(CACHE))
+    if (d._savedAt) { const t = new Date(d._savedAt); d._age = (Date.now() - t) / 60000; d._saved = (t.toDateString() === new Date().toDateString() ? '' : t.getDate() + '/' + (t.getMonth() + 1) + ' ') + String(t.getHours()).padStart(2, '0') + ':' + String(t.getMinutes()).padStart(2, '0') }
+    return d
+  } catch (e) { return null }
+}
+async function fetchData(timeout) {
+  const url = API + '?action=widget&token=' + encodeURIComponent(TOKEN)
+  const r = new Request(url); r.timeoutInterval = timeout || 20
+  const txt = await r.loadString()
+  let j; try { j = JSON.parse(txt) } catch (e) { throw new Error('Google no ha devuelto datos (¿está desplegado el Apps Script como «Cualquier usuario»?)') }
+  if (!j.ok) throw new Error(j.error)
+  j.data._savedAt = new Date().toISOString(); FM.writeString(CACHE, JSON.stringify(j.data))
+  return j.data
+}
+// maxAge: minutos que damos por buenos los datos guardados sin volver a pedirlos
+async function getData(timeout, maxAge) {
+  const c = readCache()
+  if (c && maxAge && c._age < maxAge) return c
+  try { return await fetchData(timeout) }
+  catch (e) { if (c) { c._offline = true; c._err = e.message; return c } throw e }
 }
 
 const eur = n => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'
@@ -189,7 +200,7 @@ function inAppHTML(d) {
   .off{background:#E6E3DC;border-radius:12px;padding:8px 12px;font-size:12px;font-weight:600;margin-bottom:12px}
   a.btn{display:block;text-align:center;background:#2F3F9E;color:#fff;text-decoration:none;font-weight:700;border-radius:16px;padding:15px;margin-top:18px}
   </style></head><body>
-  ${d._offline ? `<div class="off">Sin conexión · datos guardados${d._saved ? ' de las ' + d._saved : ''}</div>` : ''}
+  ${d._loading ? `<div class="off">Actualizando… (datos de las ${d._saved || '—'})</div>` : d._offline ? `<div class="off">Sin conexión · datos guardados${d._saved ? ' de las ' + d._saved : ''}${d._err ? '<br><span style="font-weight:400">' + esc(d._err) + '</span>' : ''}</div>` : ''}
   <div class="row"><div><div class="e">${DIAS[now.getDay()]} · hoy</div><h1>${now.getDate()} ${MESL[now.getMonth()]}</h1></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">${hstr(work)} h</div><div class="m" style="color:#5C5F66">${d.today.length} bloques</div></div></div>
   <div>${ev}</div>
   <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
@@ -199,6 +210,9 @@ function inAppHTML(d) {
   </body></html>`
 }
 
+function loadingHTML() {
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#F4F2ED;color:#17181C;font:15px -apple-system,system-ui,sans-serif;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;gap:14px}.s{width:28px;height:28px;border:3px solid #E2DED5;border-top-color:#17181C;border-radius:50%;animation:r .8s linear infinite}@keyframes r{to{transform:rotate(360deg)}}</style></head><body><div class="s"></div><div>Cargando tu agenda… <span id="t">0</span> s</div><script>let n=0;setInterval(()=>document.getElementById('t').textContent=++n,1000)</script></body></html>`
+}
 function errorHTML(msg) {
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#F4F2ED;color:#17181C;font:15px -apple-system,system-ui,sans-serif;padding:60px 20px}h1{font-size:24px}p{color:#5C5F66;line-height:1.45}code{background:#fff;padding:2px 6px;border-radius:6px}</style></head><body>
   <h1>No he podido cargar tus datos</h1><p><b>${esc(msg)}</b></p>
@@ -209,17 +223,30 @@ function errorHTML(msg) {
 async function run() {
   const inApp = !config.runsInWidget
   let d = null, err = null
-  try {
-    if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
-    d = await getData(inApp ? 15 : 25)
-  } catch (e) { err = e }
+  if (!inApp) {
+    try {
+      if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
+      d = await getData(12, 10)
+    } catch (e) { err = e }
+  }
 
   if (inApp) {
-    // abierto tocando el widget o desde Scriptable: vista completa (sin internet usa lo último guardado)
+    // abierto tocando el widget o desde Scriptable: se muestra al momento lo guardado y luego se actualiza
     const wv = new WebView()
-    try { await wv.loadHTML(d ? inAppHTML(d) : errorHTML(err.message)) }
-    catch (e) { await wv.loadHTML(errorHTML('Error al dibujar: ' + e.message)) }
-    await wv.present(true)
+    const c = readCache()
+    await wv.loadHTML(c ? inAppHTML(Object.assign(c, { _offline: false, _loading: true })) : loadingHTML())
+    const shown = wv.present(true)
+    try {
+      if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
+      const t0 = Date.now()
+      const d = await fetchData(25)
+      d._secs = Math.round((Date.now() - t0) / 1000)
+      await wv.loadHTML(inAppHTML(d))
+    } catch (e) {
+      if (c) { c._offline = true; c._err = e.message; await wv.loadHTML(inAppHTML(c)) }
+      else await wv.loadHTML(errorHTML(e.message))
+    }
+    await shown
     Script.complete()
     return
   }

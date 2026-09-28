@@ -93,9 +93,17 @@ function handle_(p) {
       saveCategoria: function () { return upsert_('Categorias', data); },
       deleteCategoria: function () { return remove_('Categorias', data.id); },
       updateEvent: function () { return updateEvent_(data); },
-      widget: function () { return widget_(); }
+      widget: function () {
+        // guardado 5 min para que el widget del iPhone cargue al instante
+        var cache = CacheService.getScriptCache(), hit = cache.get('widget');
+        if (hit) return JSON.parse(hit);
+        var w = widget_();
+        try { cache.put('widget', JSON.stringify(w), 300); } catch (e) {}
+        return w;
+      }
     };
     if (!A[p.action]) throw new Error('Acción desconocida: ' + p.action);
+    if (/^(save|delete|create|update)/.test(p.action)) { try { CacheService.getScriptCache().remove('widget'); } catch (e) {} }
     out = { ok: true, data: A[p.action]() };
   } catch (err) {
     out = { ok: false, error: String(err.message || err) };
