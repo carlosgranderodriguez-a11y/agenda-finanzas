@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v12';
+const VERSION = 'v13';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -240,11 +240,12 @@ function clientAreaRules() {
   if (!S.fin) return [];
   const m = cmeta();
   return S.fin.clientes.filter(c => m[c.id] && m[c.id].area && S.cats.some(k => k.id === m[c.id].area) && (c.nombre || '').trim().length >= 3)
-    .map(c => ({ n: c.nombre.trim().toLowerCase(), area: m[c.id].area })).sort((a, b) => b.n.length - a.n.length);
+    .map(c => ({ n: aliasOf(c).toLowerCase(), area: m[c.id].area })).filter(r => r.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
 }
 function evAreaMap() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.eventos_area) || '{}') || {}; } catch (e) { return {}; } }
 const clientsOfArea = area => S.fin ? S.fin.clientes.filter(c => metaOf(c.id).area === area) : [];
-const titleHas = (e, c) => (e.title || '').toLowerCase().includes((c.nombre || '').trim().toLowerCase());
+const aliasOf = c => ((c && c.id && metaOf(c.id).alias) || (c && c.nombre) || '').trim();
+const titleHas = (e, c) => { const a = aliasOf(c).toLowerCase(); return a.length >= 3 && (e.title || '').toLowerCase().includes(a); };
 const isDemo = () => S.cfg.demo || !S.cfg.api;
 
 /* ---------- API ---------- */
@@ -443,7 +444,7 @@ function sesionesDe(cid, ym) {
 function markStale() { S.monthEv = {}; Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
 
 /* ---------- router ---------- */
-const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
+const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', bonos: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
 function route() { const h = (location.hash || '#hoy').slice(1); return ROUTES[h] ? h : 'hoy'; }
 function go(h) { if (location.hash === '#' + h) render(); else location.hash = h; }
 window.addEventListener('hashchange', () => { closeSheet(); window.scrollTo(0, 0); render(); });
@@ -456,6 +457,7 @@ function render() {
   else if (r === 'resumen') app.innerHTML = viewResumen();
   else if (r === 'ingresos') app.innerHTML = viewIngresos();
   else if (r === 'concepto') app.innerHTML = viewConcepto();
+  else if (r === 'bonos') app.innerHTML = viewBonos();
   else if (r === 'gastos') app.innerHTML = viewGastos();
   else if (r === 'clientes') app.innerHTML = viewClientes();
   else if (r === 'ajustes') app.innerHTML = viewAjustes();
@@ -473,6 +475,7 @@ function renderNav(r) {
 function afterRender(r) {
   if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
   if (r === 'concepto') loadMonthEv(S.month);
+  if (r === 'bonos' || r === 'clientes' || r === 'resumen') loadBonoEv();
   if (ROUTES[r] === 'fin') loadFin();
   if (r === 'hoy' && !afterRender._scrolled) {
     afterRender._scrolled = true;
@@ -582,6 +585,7 @@ function findEvent(id, start) {
   return evs.find(e => e.id === id && e.start === start) || evs.find(e => e.id === id);
 }
 function sheetDetalle(id, start) {
+  if (S.fin && allBonos().length && !S.bonoRange) loadBonoEv();
   const e = findEvent(id, start); if (!e) return;
   const c = catOf(e.cat), dd = parseD(e.start);
   openSheet(`<div class="stack">
@@ -593,6 +597,7 @@ function sheetDetalle(id, start) {
       ${e.location ? `<span class="muted">${esc(e.location)}</span>` : ''}
       <span class="muted" style="font-size:12px">Calendario: ${esc(e.cal)}</span>
     </div>
+    ${bonoEnEvento(e)}
     <div class="row">
       <a class="btn outline grow" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink)" href="https://calendar.google.com/calendar/r/day/${dd.getFullYear()}/${dd.getMonth() + 1}/${dd.getDate()}" target="_blank" rel="noopener">Abrir en Google Calendar</a>
     </div>
@@ -773,7 +778,7 @@ const tipoName = t => t || 'Sin tipo';
 function lineasOf(i) {
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
   if (!Array.isArray(L) || !L.length) L = [{ tipo: '', importe: num(i.importe), detalle: '' }];
-  return L.map(l => ({ tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }));
+  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); return o; });
 }
 // importe de un ingreso que corresponde a un tipo concreto (o todo si no hay filtro)
 const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).reduce((s, l) => s + l.importe, 0) : num(i.importe);
@@ -815,6 +820,8 @@ function viewResumen() {
       <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span></button>
       <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='sinfactura';go('ingresos')"><span style="color:var(--accent)">Sin facturar · ${sinFac.length}</span><span>${eur0(sumI(sinFac))}</span></button>
     </div>
+    ${(() => { const L = bonosResumen(); if (!L.length) return ''; const ren = L.filter(x => x.st.quedan <= 1).length, deben = L.filter(x => x.st.sinBonoPast).length;
+      return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos</b><span class="muted" style="font-size:12px">${L.length} cliente${L.length === 1 ? '' : 's'}${ren ? ' · <b style="color:var(--warn)">' + ren + ' por renovar</b>' : ''}${deben ? ' · <b style="color:var(--bad)">' + deben + ' con sesiones sin pagar</b>' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
     <div class="card stack" style="gap:10px">
       <div class="row between"><b style="font-size:14px">Últimos 12 meses</b><span class="muted" style="font-size:12px">media ${eur0(avg)} · ${yr}: ${eur0(anual)}</span></div>
       <div class="bars">${months.map((m, i) => `<button class="${m === ym ? 'on' : ''}" aria-label="${MESES[parseD(m + '-01').getMonth()]}: ${eur0(vals[i])}" onclick="S.month='${m}';render()"><span style="height:${Math.round(vals[i] / max * 88)}px"></span><span>${MES_C[parseD(m + '-01').getMonth()][0].toUpperCase()}</span></button>`).join('')}</div>
@@ -1004,7 +1011,7 @@ async function guardarAtleta(ev) {
       if (!nombre) { toast('Escribe el nombre o elige uno'); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); return; }
       const ex = S.fin.clientes.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
       if (ex) cid = ex.id;
-      else { const c = await api('saveCliente', { data: { id: uid(), nombre, nif: '', email: '', tarifa: String(num(QA.imp)), color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; await saveMeta(cid, { tipo: t, area: '' }); }
+      else { const c = await api('saveCliente', { data: { id: uid(), nombre, nif: '', email: '', tarifa: String(num(QA.imp)), color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; await saveMeta(cid, Object.assign({}, metaOf(cid), { tipo: t })); }
     }
     const o = nuevoIngresoDe(cid, t, QA.imp);
     if (QA.cobrado === 'si') { o.cobrado = 'si'; o.fecha_cobro = todayStr(); }
@@ -1092,6 +1099,7 @@ function renderIngresoSheet() {
         <div class="row" style="gap:8px">
           <input class="in" aria-label="Importe" inputmode="decimal" placeholder="€" value="${esc(l.importe)}" style="width:110px;flex:none;background:var(--card);font-weight:700;font-size:17px" oninput="FF._lin[${k}].importe=this.value;FF._touched=true;updTotal()">
           <input class="in" aria-label="Detalle" placeholder="Detalle (opcional)" value="${esc(l.detalle)}" style="background:var(--card)" oninput="FF._lin[${k}].detalle=this.value">
+          ${num(l.bono) ? `<button type="button" class="chip" title="Quitar bono" style="flex:none;background:#DCE1F6;color:var(--accent)" onclick="delete FF._lin[${k}].bono;renderIngresoSheet()">${num(l.bono) === 1 ? 'Suelta' : 'Bono ' + num(l.bono)} ×</button>` : ''}
           ${FF._lin.length > 1 ? `<button type="button" class="iconbtn" aria-label="Quitar concepto" style="background:var(--card)" onclick="FF._lin.splice(${k},1);renderIngresoSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>` : ''}
         </div></div>`).join('')}
       <button type="button" class="btn" style="background:var(--bg);height:42px" onclick="FF._lin.push({tipo:'${esc(tiposList()[0]).replace(/'/g, '')}',importe:'',detalle:''});FF._touched=true;renderIngresoSheet()">+ Dividir en otro concepto</button>
@@ -1114,14 +1122,14 @@ function pickCliente(id, silent) {
     // copia el desglose del último ingreso de ese cliente; si no hay, su importe habitual
     const last = ING().filter(i => i.cliente_id === id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
     const defT = metaOf(id).tipo || tiposList()[0];
-    FF._lin = last ? lineasOf(last).map(l => ({ tipo: l.tipo || defT, importe: l.importe ? String(l.importe) : '', detalle: l.detalle })) : [{ tipo: defT, importe: c.tarifa || '', detalle: '' }];
+    FF._lin = last ? lineasOf(last).map(l => Object.assign({}, l, { tipo: l.tipo || defT, importe: l.importe ? String(l.importe) : '' })) : [{ tipo: defT, importe: c.tarifa || '', detalle: '' }];
   }
   if (!silent) renderIngresoSheet();
 }
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
-  const lin = FF._lin.filter(l => num(l.importe)).map(l => ({ tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }));
+  const lin = FF._lin.filter(l => num(l.importe)).map(l => { const o = { tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }; if (num(l.bono) > 0) o.bono = num(l.bono); return o; });
   if (!lin.length) { toast('Pon el importe'); return; }
   const o = Object.assign({}, FF, { importe: String(lin.reduce((s, l) => s + l.importe, 0)), lineas: JSON.stringify(lin) });
   delete o._lin; delete o._touched;
@@ -1195,7 +1203,7 @@ function viewClientes() {
     ${demoBanner()}
     <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Clientes</h1></div>
     <button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button>
-    <div class="card" style="padding:4px 14px">${list.length ? list.map(c => `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${c.tarifa ? 'Habitual ' + eur(num(c.tarifa)) : 'Sin importe habitual'}${pend(c.id) ? ' · <span style="color:var(--warn);font-weight:700">debe ' + eur0(pend(c.id)) + '</span>' : ''}</span></span><span class="col" style="align-items:flex-end"><b>${eur0(tot(c.id))}</b><span class="muted" style="font-size:11px">en ${yr}</span></span></button>`).join('') : `<div class="empty">Aún no tienes clientes.</div>`}</div>
+    <div class="card" style="padding:4px 14px">${list.length ? list.map(c => `<button class="li" onclick="sheetFicha('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${bonoTag(c.id) || (c.tarifa ? 'Habitual ' + eur(num(c.tarifa)) : 'Sin importe habitual')}${pend(c.id) ? ' · <span style="color:var(--warn);font-weight:700">debe ' + eur0(pend(c.id)) + '</span>' : ''}</span></span><span class="col" style="align-items:flex-end"><b>${eur0(tot(c.id))}</b><span class="muted" style="font-size:11px">en ${yr}</span></span></button>`).join('') : `<div class="empty">Aún no tienes clientes.</div>`}</div>
   </div>`;
 }
 let CC = null, CC_back = false;
@@ -1203,14 +1211,21 @@ function sheetCliente(id, back) {
   CC_back = !!back;
   const src = id ? S.fin.clientes.find(x => x.id === id) : null;
   CC = src ? Object.assign({}, src) : { nombre: '', nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' };
-  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || '';
+  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || '';
   renderClienteSheet();
 }
 function renderClienteSheet() {
+  S._fichaId = null;
   openSheet(`<form class="stack" onsubmit="guardarCliente(event)">
     <h1 style="font-size:24px">${CC.id ? 'Editar cliente' : 'Nuevo cliente'}</h1>
     <label class="f">Nombre<input class="in" required value="${esc(CC.nombre)}" oninput="CC.nombre=this.value"></label>
+    <label class="f">Cómo aparece en la agenda<input class="in" value="${esc(CC._alias)}" oninput="CC._alias=this.value" placeholder="${esc(CC.nombre || 'Ej. Rafa')} (si en tus eventos lo escribes distinto)"></label>
     <label class="f">Importe habitual (€)<input class="in" inputmode="decimal" value="${esc(CC.tarifa)}" oninput="CC.tarifa=this.value" placeholder="Se rellena solo al apuntar un ingreso"></label>
+    <div class="grid3">
+      <label class="f">Sesiones bono<input class="in" inputmode="numeric" value="${esc(CC._nbono)}" oninput="CC._nbono=this.value" placeholder="4"></label>
+      <label class="f">Precio bono €<input class="in" inputmode="decimal" value="${esc(CC._pbono)}" oninput="CC._pbono=this.value"></label>
+      <label class="f">Suelta €<input class="in" inputmode="decimal" value="${esc(CC._psuelta)}" oninput="CC._psuelta=this.value"></label>
+    </div>
     <div class="col" style="gap:6px"><span class="eyebrow">Área en la agenda</span><div class="chips" style="flex-wrap:wrap">
       <button type="button" class="chip ${!CC._area ? 'on' : ''}" style="${!CC._area ? '' : 'background:var(--bg)'}" onclick="CC._area='';renderClienteSheet()">Ninguna</button>
       ${S.cats.map(k => `<button type="button" class="chip ${CC._area === k.id ? 'on' : ''}" style="${CC._area === k.id ? '' : `background:${k.bg};color:${k.fg}`}" onclick="CC._area='${k.id}';renderClienteSheet()">${esc(k.nombre)}</button>`).join('')}
@@ -1229,15 +1244,18 @@ function renderClienteSheet() {
 async function guardarCliente(ev) {
   ev.preventDefault();
   try {
-    const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC); delete data._area; delete data._tipo;
+    const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC);
+    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || '') };
+    Object.keys(data).forEach(k => { if (k[0] === '_') delete data[k]; });
     if (!data.id) data.id = uid();
     const prevArea = metaOf(data.id).area || '';
     const c = await api('saveCliente', { data });
-    if (area !== prevArea || tipo !== (metaOf(c.id).tipo || '')) await saveMeta(c.id, { area, tipo });
-    if (area !== prevArea) await syncAreaKeywords(c.nombre, area, prevArea);
+    const old = metaOf(c.id), nm = Object.assign({}, old, { area, tipo }, extra);
+    if (JSON.stringify(old) !== JSON.stringify(nm)) await saveMeta(c.id, nm);
+    if (area !== prevArea) await syncAreaKeywords(extra.alias || c.nombre, area, prevArea);
     const i = S.fin.clientes.findIndex(x => x.id === c.id); if (i >= 0) S.fin.clientes[i] = c; else S.fin.clientes.push(c);
     LS.set('af_fin_cache', S.fin); toast('Cliente guardado');
-    if (CC_back && FF) { FF.cliente_id = c.id; FF._touched = false; pickCliente(c.id); } else { closeSheet(); render(); }
+    if (CC_back && FF) { FF.cliente_id = c.id; FF._touched = false; pickCliente(c.id); } else if (CC_back === 'ficha') { render(); sheetFicha(c.id); } else { closeSheet(); render(); }
   } catch (e) { toast(e.message); }
 }
 async function borrarCliente(id) {
@@ -1344,6 +1362,151 @@ async function copiarWidget() {
   }
 }
 
+/* =================== BONOS =================== */
+// Un bono es una línea de un ingreso con "bono: N" (N sesiones). Una sesión suelta es "bono: 1".
+// Las sesiones se descuentan con los eventos de la agenda que llevan el nombre del cliente (orden de llegada).
+function allBonos() {
+  const out = [];
+  ING().forEach(i => lineasOf(i).forEach(l => { if (num(l.bono) > 0) out.push({ ingId: i.id, cid: i.cliente_id, fecha: i.fecha || '', n: num(l.bono), importe: l.importe, cobrado: cobrado(i) }); }));
+  return out.sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+function sesExcl() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.ses_excluidas) || '[]') || []; } catch (e) { return []; } }
+const evKey = e => e.id + '|' + e.start;
+const nowLocal = () => { const d = new Date(); return ymd(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':00'; };
+S.bonoEv = LS.get('af_bonoev', { e: null }).e; S.bonoRange = '';
+async function loadBonoEv(force) {
+  if (!S.fin) return;
+  const bl = allBonos(); if (!bl.length) { if (!S.bonoEv) S.bonoEv = []; return; }
+  let from = bl[0].fecha; const lim = addDays(todayStr(), -365); if (from < lim) from = lim; from = addDays(from, -7);
+  const to = addDays(todayStr(), 60), key = from + to;
+  if ((!force && S.bonoRange === key) || S.loadingBonoEv) return;
+  S.loadingBonoEv = true;
+  try { const r = await api('agenda', { from, to }); S.bonoEv = r.events || []; S.bonoRange = key; LS.set('af_bonoev', { e: S.bonoEv }); }
+  catch (e) { if (!S.bonoEv) S.bonoEv = []; S.bonoRange = key; }
+  finally { S.loadingBonoEv = false; if (['bonos', 'clientes', 'resumen'].includes(route())) render(); if (S._fichaId && $('#sheet').classList.contains('show')) sheetFicha(S._fichaId); }
+}
+function estadoBono(cid) {
+  const bonos = allBonos().filter(b => b.cid === cid);
+  if (!bonos.length) return null;
+  const c = clienteOf(cid), excl = new Set(sesExcl()), start = addDays(bonos[0].fecha, -7), now = nowLocal();
+  const seen = new Set();
+  const ses = (S.bonoEv || []).filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
+  const used = bonos.map(() => []), sinBono = []; let bi = 0;
+  ses.forEach(s => { while (bi < bonos.length && used[bi].length >= bonos[bi].n) bi++; if (bi < bonos.length) used[bi].push(s); else sinBono.push(s); });
+  const info = bonos.map((b, i) => ({ ...b, ses: used[i], hechas: used[i].filter(s => s.start < now).length, reservadas: used[i].filter(s => s.start >= now).length }));
+  const vivos = info.filter(b => b.hechas < b.n);
+  return { bonos: info, activo: vivos[0] || null, quedan: vivos.reduce((s, b) => s + b.n - b.hechas, 0), reservadas: info.reduce((s, b) => s + b.reservadas, 0),
+    sinBonoPast: sinBono.filter(s => s.start < now).length, sinBonoFut: sinBono.filter(s => s.start >= now).length, sinBono, ses };
+}
+function bonoTag(cid) {
+  const st = estadoBono(cid); if (!st) return '';
+  if (st.sinBonoPast) return `<b style="color:var(--bad)">${st.sinBonoPast} sin pagar</b>`;
+  return `<b style="color:${st.quedan <= 1 ? 'var(--warn)' : 'var(--ok)'}">Bono: quedan ${st.quedan}</b>`;
+}
+function bonosResumen() { const ids = [...new Set(allBonos().map(b => b.cid))]; return ids.map(id => ({ c: clienteOf(id), id, st: estadoBono(id) })).filter(x => x.st); }
+function dots(n, hechas, reservadas) {
+  let h = ''; for (let k = 0; k < n; k++) h += `<i style="width:14px;height:14px;border-radius:7px;display:inline-block;${k < hechas ? 'background:var(--ink)' : k < hechas + reservadas ? 'background:transparent;border:2px solid var(--ink);box-sizing:border-box' : 'background:var(--line)'}"></i>`;
+  return `<span class="row" style="gap:5px;flex-wrap:wrap">${h}</span>`;
+}
+function viewBonos() {
+  if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
+  const L = bonosResumen().sort((a, b) => (b.st.sinBonoPast - a.st.sinBonoPast) || (a.st.quedan - b.st.quedan));
+  return `<div class="stack">
+    ${demoBanner()}
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Bonos</h1>${S.loadingBonoEv ? '<span class="spin"></span>' : `<button class="iconbtn" aria-label="Recargar" onclick="loadBonoEv(true)">${ICON.refresh}</button>`}</div>
+    <span class="muted" style="font-size:13px">Las sesiones se descuentan con los eventos de tu agenda que llevan el nombre del cliente. ● hecha · ○ reservada</span>
+    <div class="card" style="padding:4px 14px">${L.length ? L.map(x => { const a = x.st.activo;
+      return `<button class="li" onclick="sheetFicha('${x.id}')"><span class="av" style="background:${x.c.color || '#6B6E75'}22;color:${x.c.color || '#6B6E75'}">${esc(initials(x.c.nombre))}</span>
+      <span class="col grow" style="gap:5px"><b style="font-size:14px">${esc(x.c.nombre)}</b>${a ? dots(a.n, a.hechas, a.reservadas) : '<span class="muted" style="font-size:12px">Bono terminado</span>'}</span>
+      <span class="col" style="align-items:flex-end;gap:3px"><b class="big" style="font-size:22px;color:${x.st.quedan <= 1 ? 'var(--warn)' : 'var(--ink)'}">${x.st.quedan}</b><span class="muted" style="font-size:11px">quedan</span>${x.st.sinBonoPast ? `<span class="badge b-bad">${x.st.sinBonoPast} sin pagar</span>` : x.st.quedan <= 1 ? '<span class="badge b-warn">Renovar</span>' : ''}</span></button>`; }).join('') : `<div class="empty">Aún no has vendido bonos. Entra en un cliente (Resumen → Clientes) y pulsa «Vender bono».</div>`}</div>
+    <button class="btn" onclick="go('clientes')">Ir a clientes</button>
+  </div>`;
+}
+function sheetFicha(cid) {
+  S._fichaId = cid;
+  if (S.bonoEv === null || !S.bonoRange) loadBonoEv();
+  const c = clienteOf(cid), m = metaOf(cid), st = estadoBono(cid);
+  const nb = num(m.nbono) || 4, pb = num(m.pbono) || 0, ps = num(m.psuelta) || 0;
+  const pend = sumI(ING().filter(i => i.cliente_id === cid && !cobrado(i)));
+  const a = st && st.activo;
+  const fmtS = s => { const d = parseD(s.start); return DL[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MES_C[d.getMonth()] + ' · ' + hm(s.start); };
+  openSheet(`<div class="stack">
+    <div class="row" style="gap:12px"><span class="av" style="width:48px;height:48px;background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>
+      <div class="col grow"><h1 style="font-size:22px">${esc(c.nombre)}</h1><span class="muted" style="font-size:12px">En la agenda: «${esc(aliasOf(c))}»${m.area ? ' · ' + esc(catOf(m.area).nombre) : ''}</span></div>
+      <button class="chip" style="background:var(--bg)" onclick="CC_back='ficha';sheetCliente('${cid}');CC_back='ficha'">Editar</button></div>
+    ${st ? `<div class="card stack" style="background:var(--bg);gap:10px">
+      <div class="row between" style="align-items:flex-end"><div class="col"><span class="eyebrow">${a ? 'Bono actual' : 'Sin bono activo'}</span><span class="big" style="font-size:34px">${st.quedan} <span style="font-size:15px;font-weight:600">${st.quedan === 1 ? 'sesión' : 'sesiones'} ${st.quedan === 1 ? 'queda' : 'quedan'}</span></span></div>${S.loadingBonoEv ? '<span class="spin"></span>' : ''}</div>
+      ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>` : ''}
+      ${a && a.ses.length ? `<div class="col" style="gap:4px">${a.ses.map((s, k) => `<span style="font-size:13px">${s.start < nowLocal() ? '●' : '○'} Sesión ${k + 1} · ${fmtS(s)}</span>`).join('')}</div>` : ''}
+      ${st.reservadas && !a ? `<span class="muted" style="font-size:13px">${st.reservadas} reservadas en la agenda</span>` : ''}
+      ${st.sinBonoPast ? `<div style="background:var(--badbg);color:var(--bad);border-radius:12px;padding:8px 10px;font-size:13px;font-weight:600">${st.sinBonoPast} ${st.sinBonoPast === 1 ? 'sesión hecha' : 'sesiones hechas'} sin bono ni pago: ${st.sinBono.filter(s => s.start < nowLocal()).map(fmtS).join(', ')}</div>` : ''}
+      ${st.sinBonoFut ? `<span class="muted" style="font-size:12px">${st.sinBonoFut} sesión(es) futura(s) en agenda sin bono</span>` : ''}
+    </div>` : `<span class="muted" style="font-size:13px">Todavía no tiene bonos ni sesiones sueltas apuntadas.</span>`}
+    <div class="grid2">
+      <button class="btn primary" onclick="sheetVenta('${cid}',${nb})">Vender bono de ${nb}${pb ? ' · ' + eur(pb) : ''}</button>
+      <button class="btn dark" onclick="sheetVenta('${cid}',1)">Sesión suelta${ps ? ' · ' + eur(ps) : ''}</button>
+    </div>
+    ${pend ? `<button class="btn" style="background:var(--warnbg);color:var(--warn)" onclick="S.q='${esc(c.nombre).replace(/'/g, '')}';S.filter='pendientes';S.tipoF='';go('ingresos')">Te debe ${eur(pend)} · ver</button>` : ''}
+    ${st && st.bonos.length > 1 ? `<details><summary class="muted" style="font-size:13px;cursor:pointer">Historial (${st.bonos.length})</summary><div class="col" style="gap:6px;margin-top:8px">${st.bonos.slice().reverse().map(b => `<span style="font-size:13px">${fmtLong(b.fecha)} · ${b.n === 1 ? 'Suelta' : 'Bono ' + b.n} · ${eur(b.importe)} · usadas ${b.hechas}/${b.n}</span>`).join('')}</div></details>` : ''}
+  </div>`);
+}
+let VT = null;
+function sheetVenta(cid, n) {
+  const c = clienteOf(cid), m = metaOf(cid);
+  VT = { cid, n: String(n), imp: String(n === 1 ? (num(m.psuelta) || '') : (num(m.pbono) || '')), cobrado: 'si', tipo: m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]), fecha: todayStr() };
+  renderVenta();
+}
+function renderVenta() {
+  S._fichaId = null;
+  const c = clienteOf(VT.cid), suelta = num(VT.n) === 1;
+  openSheet(`<form class="stack" onsubmit="guardarVenta(event)">
+    <h1 style="font-size:22px">${suelta ? 'Sesión suelta' : 'Nuevo bono'} · ${esc(c.nombre)}</h1>
+    <div class="grid2">
+      <label class="f">Sesiones<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value"></label>
+      <label class="f">Precio (€)<input class="in" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value" style="font-weight:800;font-size:18px"></label>
+    </div>
+    <label class="f">Fecha<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${VT.tipo === t ? 'on' : ''}" style="${VT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="VT.tipo='${esc(t).replace(/'/g, '')}';renderVenta()">${esc(t)}</button>`).join('')}</div></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span><div class="opt"><button type="button" class="${VT.cobrado === 'si' ? 'on' : ''}" onclick="VT.cobrado='si';renderVenta()">Sí</button><button type="button" class="${VT.cobrado !== 'si' ? 'on' : ''}" onclick="VT.cobrado='no';renderVenta()">No, me debe</button></div></div>
+    <button class="btn primary" type="submit">Guardar</button>
+    <button class="btn" type="button" style="background:var(--bg)" onclick="sheetFicha('${VT.cid}')">Volver</button>
+  </form>`);
+}
+async function guardarVenta(ev) {
+  ev.preventDefault();
+  const n = Math.max(1, Math.round(num(VT.n))), imp = num(VT.imp);
+  if (!imp) { toast('Pon el precio'); return; }
+  const det = n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones';
+  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: VT.tipo, importe: imp, detalle: det, bono: n }]) };
+  document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
+  try {
+    await saveIng(o, det + ' apuntado');
+    // recuerda precio/sesiones para la próxima vez
+    const m = metaOf(VT.cid), nm = Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : { nbono: String(n), pbono: String(imp) }, m.tipo ? {} : { tipo: VT.tipo });
+    if (JSON.stringify(m) !== JSON.stringify(nm)) await saveMeta(VT.cid, nm);
+    await loadBonoEv(true); render(); sheetFicha(VT.cid);
+  } catch (e) { toast(e.message); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); }
+}
+// en la ficha de un evento: a qué bono cuenta y opción de no descontarlo
+function bonoEnEvento(e) {
+  if (!S.fin) return '';
+  const c = S.fin.clientes.find(x => allBonos().some(b => b.cid === x.id) && titleHas(e, x)); if (!c) return '';
+  const excl = sesExcl().includes(evKey(e));
+  let txt = '';
+  if (!excl) {
+    const st = estadoBono(c.id);
+    if (st) { const i = st.bonos.findIndex(b => b.ses.some(s => evKey(s) === evKey(e))); if (i >= 0) { const b = st.bonos[i]; txt = `${b.n === 1 ? 'Sesión suelta pagada' : 'Sesión ' + (b.ses.findIndex(s => evKey(s) === evKey(e)) + 1) + ' de ' + b.n + ' del bono'} · quedan ${st.quedan}`; } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = '<b style="color:var(--bad)">Sin bono: no está pagada</b>'; else if (S.loadingBonoEv) txt = 'Calculando…'; }
+  }
+  return `<div class="card" style="background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:6px"><span style="font-size:13px"><b>${esc(c.nombre)}</b> · ${excl ? 'no se descuenta del bono' : txt || 'bono'}</span>
+    <label class="row" style="gap:8px;font-size:13px;color:var(--muted)"><input type="checkbox" ${excl ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--dark)" onchange="toggleExcl('${esc(e.id)}','${e.start}',this.checked)"> No descontar (cancelada / no cuenta)</label></div>`;
+}
+async function toggleExcl(id, start, on) {
+  const k = id + '|' + start, L = sesExcl().filter(x => x !== k); if (on) L.push(k);
+  const v = JSON.stringify(L.slice(-500));
+  try { await api('saveConfig', { data: { ses_excluidas: v } }); S.fin.config.ses_excluidas = v; LS.set('af_fin_cache', S.fin); toast(on ? 'No se descontará' : 'Se descuenta del bono'); sheetDetalle(id, start); }
+  catch (e) { toast(e.message); }
+}
+
 /* =================== ÁREAS DE LA AGENDA =================== */
 // añade el nombre del cliente como palabra clave del área (así el backend y el widget también lo colorean)
 async function syncAreaKeywords(nombre, area, prevArea) {
@@ -1423,7 +1586,7 @@ function openSheet(html) {
   const s = $('#sheet'); s.innerHTML = '<div class="grab"></div>' + html;
   $('#backdrop').classList.add('show'); requestAnimationFrame(() => s.classList.add('show'));
 }
-function closeSheet() { $('#sheet').classList.remove('show'); $('#backdrop').classList.remove('show'); }
+function closeSheet() { S._fichaId = null; $('#sheet').classList.remove('show'); $('#backdrop').classList.remove('show'); }
 $('#backdrop').addEventListener('click', closeSheet);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 
