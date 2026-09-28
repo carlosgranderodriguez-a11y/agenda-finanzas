@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v10';
+const VERSION = 'v11';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1381,7 +1381,12 @@ async function guardarArea(ev) {
   ev.preventDefault();
   if (!AR.nombre.trim()) return;
   const o = Object.assign({}, AR, { nombre: AR.nombre.trim() });
-  if (!o.id) o.id = 'a' + uid().slice(0, 6);
+  if (!o.id) {
+    const ex = S.cats.find(k => (k.nombre || '').trim().toLowerCase() === o.nombre.toLowerCase());
+    if (ex) { toast('Ya existe el área «' + ex.nombre + '»'); if (AR_from === 'cliente' && CC) { CC._area = ex.id; renderClienteSheet(); } else sheetArea(ex.id); return; }
+    o.id = 'a' + uid().slice(0, 6);
+  }
+  if (S._savingArea) return; S._savingArea = true; setTimeout(() => S._savingArea = false, 4000);
   try {
     const k = await api('saveCategoria', { data: o });
     const i = S.cats.findIndex(x => x.id === o.id); if (i >= 0) S.cats[i] = Object.assign({}, o, k); else S.cats.push(Object.assign({}, o, k));
