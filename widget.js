@@ -199,14 +199,37 @@ function inAppHTML(d) {
   </body></html>`
 }
 
+function errorHTML(msg) {
+  return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>body{margin:0;background:#F4F2ED;color:#17181C;font:15px -apple-system,system-ui,sans-serif;padding:60px 20px}h1{font-size:24px}p{color:#5C5F66;line-height:1.45}code{background:#fff;padding:2px 6px;border-radius:6px}</style></head><body>
+  <h1>No he podido cargar tus datos</h1><p><b>${esc(msg)}</b></p>
+  <p>Comprueba que tienes internet y que en la línea <code>const TOKEN</code> de arriba del script está tu clave (la de la hoja Config de tu Google Sheet).</p>
+  <p>Si el error dice «Clave incorrecta», vuelve a copiar el código desde la app → Ajustes.</p></body></html>`
+}
+
 async function run() {
+  const inApp = !config.runsInWidget
+  let d = null, err = null
+  try {
+    if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
+    d = await getData(inApp ? 15 : 25)
+  } catch (e) { err = e }
+
+  if (inApp) {
+    // abierto tocando el widget o desde Scriptable: vista completa (sin internet usa lo último guardado)
+    const wv = new WebView()
+    try { await wv.loadHTML(d ? inAppHTML(d) : errorHTML(err.message)) }
+    catch (e) { await wv.loadHTML(errorHTML('Error al dibujar: ' + e.message)) }
+    await wv.present(true)
+    Script.complete()
+    return
+  }
+
   const w = new ListWidget()
   w.setPadding(14, 14, 14, 14)
   w.url = 'scriptable:///run/' + encodeURIComponent(Script.name())
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000)
   try {
-    if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo. O escribe tu clave en la línea const TOKEN = \'\' de arriba.')
-    const d = await getData()
+    if (err) throw err
     const fam = config.widgetFamily || 'large'
     const param = (args.widgetParameter || '').toLowerCase()
     if (fam === 'small') param === 'finanzas' ? smallFin(d, w) : small(d, w)
@@ -218,14 +241,7 @@ async function run() {
     txt(w, 'Agenda', 14, C.ink, 'heavy'); w.addSpacer(4)
     const t = txt(w, e.message, 11, C.muted); t.lineLimit = 4
   }
-  if (config.runsInWidget) Script.setWidget(w)
-  else {
-    // abierto tocando el widget o desde Scriptable: vista completa (sin internet usa lo último guardado)
-    try {
-      const d = await getData(6)
-      const wv = new WebView(); await wv.loadHTML(inAppHTML(d)); await wv.present(true)
-    } catch (e) { await w.presentLarge() }
-  }
+  Script.setWidget(w)
   Script.complete()
 }
 await run()
