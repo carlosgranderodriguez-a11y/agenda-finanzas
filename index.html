@@ -156,7 +156,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v6';
+const VERSION = 'v7';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -224,6 +224,24 @@ const S = {
 };
 Object.assign(S.agenda, LS.get('af_agenda_cache', {}));
 const catOf = id => S.cats.find(c => c.id === id) || OTRO;
+const AREA_PALETTE = [['#9C2F5B', '#F6DCE7'], ['#1F6E78', '#D3EBEE'], ['#5B6B12', '#E6ECCB'], ['#3B4A5E', '#DDE3EA'], ['#8A6A00', '#F4EABF'], ['#1B5E48', '#D6EDE2'], ['#2F3F9E', '#DCE1F6'], ['#A8471A', '#F7DDCC'], ['#5E3F82', '#E6DCF1'], ['#7A4E00', '#F3E4BF']];
+// datos extra de cada cliente (área de la agenda y concepto de finanzas), guardados en Config → clientes_meta
+function cmeta() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.clientes_meta) || '{}') || {}; } catch (e) { return {}; } }
+const metaOf = id => cmeta()[id] || {};
+async function saveMeta(id, m) {
+  const all = cmeta(); all[id] = m; const v = JSON.stringify(all);
+  await api('saveConfig', { data: { clientes_meta: v } });
+  S.fin.config = Object.assign(S.fin.config || {}, { clientes_meta: v }); LS.set('af_fin_cache', S.fin);
+}
+// reglas: si el título de un evento contiene el nombre de un cliente con área → color de esa área
+function clientAreaRules() {
+  if (!S.fin) return [];
+  const m = cmeta();
+  return S.fin.clientes.filter(c => m[c.id] && m[c.id].area && S.cats.some(k => k.id === m[c.id].area) && (c.nombre || '').trim().length >= 3)
+    .map(c => ({ n: c.nombre.trim().toLowerCase(), area: m[c.id].area })).sort((a, b) => b.n.length - a.n.length);
+}
+const clientsOfArea = area => S.fin ? S.fin.clientes.filter(c => metaOf(c.id).area === area) : [];
+const titleHas = (e, c) => (e.title || '').toLowerCase().includes((c.nombre || '').trim().toLowerCase());
 const isDemo = () => S.cfg.demo || !S.cfg.api;
 
 /* ---------- API ---------- */
@@ -321,6 +339,7 @@ async function demoApi(action, p) {
     case 'saveGasto': return up('gastos', d);
     case 'deleteGasto': return rm('gastos', d.id);
     case 'saveConfig': Object.assign(db.config, d); save(); return db.config;
+    case 'saveCategoria': { const i = db.cats.findIndex(x => x.id === d.id); if (i >= 0) db.cats[i] = d; else db.cats.push(d); save(); return d; }
   }
   throw new Error('Acción demo desconocida ' + action);
 }
@@ -349,7 +368,19 @@ async function loadFin(force) {
   catch (e) { S._failF = Date.now(); toast('Finanzas: ' + e.message); }
   finally { S.loadingFin = false; render(); }
 }
-function markStale() { Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
+S.monthEv = {}; S.loadingMonth = {};
+async function loadMonthEv(ym, force) {
+  if ((S.monthEv[ym] && !force) || S.loadingMonth[ym]) return;
+  S.loadingMonth[ym] = true;
+  try { const r = await api('agenda', { from: ym + '-01', to: monthAdd(ym, 1) + '-01' }); S.monthEv[ym] = r.events || []; }
+  catch (e) { S.monthEv[ym] = []; }
+  finally { S.loadingMonth[ym] = false; if (route() === 'concepto') render(); }
+}
+function sesionesDe(cid, ym) {
+  const c = clienteOf(cid); if (!S.monthEv[ym] || !(c.nombre || '').trim()) return null;
+  return S.monthEv[ym].filter(e => !e.allDay && titleHas(e, c)).length;
+}
+function markStale() { S.monthEv = {}; Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
 
 /* ---------- router ---------- */
 const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
@@ -380,7 +411,8 @@ function renderNav(r) {
     $('#nav').innerHTML = a('resumen', 'Resumen') + a('ingresos', 'Ingresos') + `<button class="plus" aria-label="Nuevo ingreso" onclick="sheetIngreso()">${ICON.plus}</button>` + a('gastos', 'Gastos') + a('hoy', 'Agenda');
 }
 function afterRender(r) {
-  if (r === 'hoy' || r === 'semana') loadWeek(mondayOf(S.day));
+  if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
+  if (r === 'concepto') loadMonthEv(S.month);
   if (ROUTES[r] === 'fin') loadFin();
   if (r === 'hoy' && !afterRender._scrolled) {
     afterRender._scrolled = true;
@@ -395,7 +427,14 @@ const demoBanner = () => isDemo() ? `<div class="card stack" style="gap:10px;bac
 </div>` : '';
 
 /* =================== AGENDA: HOY =================== */
-function weekEvents(mon) { return (S.agenda[mon] || []).filter(e => e && e.start); }
+function weekEvents(mon) {
+  const R = clientAreaRules();
+  return (S.agenda[mon] || []).filter(e => e && e.start).map(e => {
+    if (!R.length) return e;
+    const t = (e.title || '').toLowerCase(), r = R.find(r => t.includes(r.n));
+    return r ? Object.assign({}, e, { cat: r.area }) : e;
+  });
+}
 function dayEvents(d) { return weekEvents(mondayOf(d)).filter(e => e.start.slice(0, 10) === d); }
 
 function viewHoy() {
@@ -533,10 +572,11 @@ function sheetEvento() {
   const now = new Date(); let h = now.getHours() + 1; if (h > 21) h = 9;
   openSheet(`<form class="stack" onsubmit="crearEvento(event)">
     <h1 style="font-size:24px">Nuevo evento</h1>
-    <label class="f">Título<input class="in" name="title" required placeholder="Ej. Readaptación · Marco"></label>
+    <label class="f">Título<input class="in" name="title" placeholder="Ej. Readaptación · Marco (o elige cliente abajo)"></label>
     <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Área
-      <div class="chips" id="catpick">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
+      <div class="chips" id="catpick" style="flex-wrap:wrap">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
     </div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="chips" id="clipick" style="flex-wrap:wrap">${cliChips(S.cats[0] && S.cats[0].id)}</div></div>
     <label class="f">Día<input class="in" type="date" name="date" value="${d}" required></label>
     <div class="grid2">
       <label class="f">Empieza<input class="in" type="time" name="start" value="${pad(h)}:00" required></label>
@@ -546,19 +586,39 @@ function sheetEvento() {
     <button class="btn dark" type="submit">Guardar en Google Calendar</button>
   </form>`);
 }
-function pickCat(b) {
+function cliChips(area) {
+  if (!S.fin) return '<span class="muted" style="font-size:12px">Cargando clientes…</span>';
+  const mine = clientsOfArea(area), rest = S.fin.clientes.filter(c => !mine.includes(c));
+  const ch = c => `<button type="button" class="chip" data-cid="${c.id}" style="background:var(--bg)" onclick="pickCli(this)">${esc(c.nombre)}</button>`;
+  return mine.map(ch).join('') + (rest.length ? `<details style="width:100%"><summary class="muted" style="font-size:12px;padding:6px 0;cursor:pointer">${mine.length ? 'Otros clientes' : 'Elegir cliente'} (${rest.length})</summary><div class="chips" style="flex-wrap:wrap;margin-top:6px">${rest.map(ch).join('')}</div></details>` : '') || '<span class="muted" style="font-size:12px">Sin clientes</span>';
+}
+function pickCli(b) {
+  const on = b.classList.contains('on');
+  document.querySelectorAll('#clipick .chip').forEach(x => { x.classList.remove('on'); x.style.background = 'var(--bg)'; });
+  if (!on) {
+    b.classList.add('on'); b.style.background = '';
+    const a = metaOf(b.dataset.cid).area;
+    const cb = a && document.querySelector('#catpick .chip[data-cat="' + a + '"]'); if (cb && !cb.classList.contains('on')) pickCat(cb, true);
+  }
+}
+function pickCat(b, keepCli) {
   document.querySelectorAll('#catpick .chip').forEach(x => { const c = catOf(x.dataset.cat); x.classList.remove('on'); x.style.background = c.bg; x.style.color = c.fg; });
   b.classList.add('on'); b.style.background = ''; b.style.color = '';
+  if (!keepCli) { const cp = $('#clipick'); if (cp) cp.innerHTML = cliChips(b.dataset.cat); }
 }
 async function crearEvento(ev) {
   ev.preventDefault();
   const f = ev.target, btn = f.querySelector('button[type=submit]');
   const cat = (document.querySelector('#catpick .chip.on') || {}).dataset?.cat || 'otro';
   const date = f.date.value;
+  const cb = document.querySelector('#clipick .chip.on'); const cli = cb ? clienteOf(cb.dataset.cid) : null;
+  let title = f.title.value.trim();
+  if (cli) { if (!title) title = cli.nombre; else if (!title.toLowerCase().includes(cli.nombre.trim().toLowerCase())) title += ' · ' + cli.nombre; }
+  if (!title) { toast('Pon un título o elige un cliente'); return; }
   if (f.end.value <= f.start.value) { toast('La hora de fin debe ser posterior'); return; }
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   try {
-    await api('createEvent', { data: { title: f.title.value.trim(), cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim() } });
+    await api('createEvent', { data: { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim() } });
     closeSheet(); toast('Evento creado'); S.day = date; markStale(); go('hoy'); loadWeek(mondayOf(date), true);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; }
 }
@@ -624,7 +684,8 @@ const sumI = arr => arr.reduce((s, i) => s + num(i.importe), 0);
 const TIPOS_DEF = ['Planificaciones mensuales', 'Entrenamientos personales', 'Best Athletes'];
 const TIPO_COLORS = ['#2F3F9E', '#1B5E48', '#A8471A', '#7A4E00', '#5E3F82', '#2D6A7A', '#9E2A17'];
 function tiposList() { const t = String(S.fin?.config?.tipos_ingreso || '').split(',').map(x => x.trim()).filter(Boolean); return t.length ? t : TIPOS_DEF; }
-const tipoColor = t => { const i = tiposList().indexOf(t); return i < 0 ? '#8A8D94' : TIPO_COLORS[i % TIPO_COLORS.length]; };
+const tipoColor = t => { const a = t && S.cats.find(k => (k.nombre || '').trim().toLowerCase() === t.trim().toLowerCase()); if (a) return a.fg; const i = tiposList().indexOf(t); return i < 0 ? '#8A8D94' : TIPO_COLORS[i % TIPO_COLORS.length]; };
+const ses = n => n + (n === 1 ? ' sesión' : ' sesiones');
 const tipoName = t => t || 'Sin tipo';
 function lineasOf(i) {
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
@@ -796,7 +857,7 @@ function viewConcepto() {
   const rows = Object.keys(by).map(id => ({ id, c: clienteOf(id), ...by[id] })).sort((a, b) => b.v - a.v);
   const total = rows.reduce((s, r) => s + r.v, 0), pend = rows.reduce((s, r) => s + r.pend, 0);
   // clientes que tuvieron este concepto antes y aún no están este mes
-  const hist = [...new Set(ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id))];
+  const hist = [...new Set([...ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id), ...S.fin.clientes.filter(c => metaOf(c.id).tipo === t).map(c => c.id)])];
   const faltan = hist.filter(id => !by[id] && S.fin.clientes.some(c => c.id === id));
   const yr = ym.slice(0, 4);
   const anual = ING().filter(i => (i.fecha || '').startsWith(yr)).reduce((s, i) => s + partOf(i, t), 0);
@@ -816,8 +877,8 @@ function viewConcepto() {
     </div>
     <div class="grid2"><button class="btn primary" onclick="sheetAtleta()">+ Añadir atleta</button><button class="btn dark" onclick="sheetLote()">Apuntar el mes${faltan.length ? ' · faltan ' + faltan.length : ''}</button></div>
     <div class="card" style="padding:4px 14px">
-      ${rows.length ? rows.map(r => `<button class="li" onclick="${r.ids.length === 1 ? `sheetVerIngreso('${r.ids[0]}')` : `S.tipoF='${esc(t).replace(/'/g, '')}';S.q='${esc(r.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')`}"><span class="av" style="background:${r.c.color || '#6B6E75'}22;color:${r.c.color || '#6B6E75'}">${esc(initials(r.c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(r.c.nombre)}</b><span class="muted" style="font-size:12px">${r.ids.length > 1 ? r.ids.length + ' apuntes' : ''}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(r.v)}</b><span class="badge ${r.pend ? 'b-warn' : 'b-ok'}">${r.pend ? 'Debe' : 'Cobrado'}</span></span></button>`).join('') : `<div class="empty">Nada apuntado en ${esc(t)} este mes.</div>`}
-      ${faltan.map(id => { const c = clienteOf(id), v = lastPart(id, t); return `<div class="li" style="opacity:.75"><span class="av" style="background:var(--soft);color:var(--muted)">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Sin apuntar este mes · última vez ${eur(v)}</span></span><button class="chip" style="background:var(--dark);color:#fff" onclick="apuntarUno('${id}')">+ ${eur(v)}</button></div>`; }).join('')}
+      ${rows.length ? rows.map(r => `<button class="li" onclick="${r.ids.length === 1 ? `sheetVerIngreso('${r.ids[0]}')` : `S.tipoF='${esc(t).replace(/'/g, '')}';S.q='${esc(r.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')`}"><span class="av" style="background:${r.c.color || '#6B6E75'}22;color:${r.c.color || '#6B6E75'}">${esc(initials(r.c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(r.c.nombre)}</b><span class="muted" style="font-size:12px">${[r.ids.length > 1 ? r.ids.length + ' apuntes' : '', sesionesDe(r.id, ym) ? ses(sesionesDe(r.id, ym)) + ' en agenda' : ''].filter(Boolean).join(' · ')}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(r.v)}</b><span class="badge ${r.pend ? 'b-warn' : 'b-ok'}">${r.pend ? 'Debe' : 'Cobrado'}</span></span></button>`).join('') : `<div class="empty">Nada apuntado en ${esc(t)} este mes.</div>`}
+      ${faltan.map(id => { const c = clienteOf(id), v = lastPart(id, t) || num(c.tarifa), ns = sesionesDe(id, ym); return `<div class="li" style="opacity:.75"><span class="av" style="background:var(--soft);color:var(--muted)">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Sin apuntar este mes${ns ? ' · <b>' + ses(ns) + '</b> en agenda' : ''}${v ? ' · ' + eur(v) : ''}</span></span><button class="chip" style="background:var(--dark);color:#fff" onclick="apuntarUno('${id}')">+ ${eur(v)}</button></div>`; }).join('')}
     </div>
     ${total ? `<div class="catbar">${rows.map(r => `<span style="flex:${r.v};background:${r.c.color || '#6B6E75'}"></span>`).join('')}</div>` : ''}
   </div>`;
@@ -827,7 +888,7 @@ function nuevoIngresoDe(cid, tipo, imp) {
   return { id: uid(), fecha: fechaDelMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: '' }]) };
 }
 async function apuntarUno(cid) {
-  const t = S.tipoSel || tiposList()[0]; const v = lastPart(cid, t);
+  const t = S.tipoSel || tiposList()[0]; const v = lastPart(cid, t) || num(clienteOf(cid).tarifa);
   if (!v) { toast('Sin importe previo: usa el +'); return; }
   try { await saveIng(nuevoIngresoDe(cid, t, v), 'Apuntado'); render(); } catch (e) { toast(e.message); }
 }
@@ -860,7 +921,7 @@ async function guardarAtleta(ev) {
       if (!nombre) { toast('Escribe el nombre o elige uno'); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); return; }
       const ex = S.fin.clientes.find(c => c.nombre.toLowerCase() === nombre.toLowerCase());
       if (ex) cid = ex.id;
-      else { const c = await api('saveCliente', { data: { id: uid(), nombre, nif: '', email: '', tarifa: String(num(QA.imp)), color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; }
+      else { const c = await api('saveCliente', { data: { id: uid(), nombre, nif: '', email: '', tarifa: String(num(QA.imp)), color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; await saveMeta(cid, { tipo: t, area: '' }); }
     }
     const o = nuevoIngresoDe(cid, t, QA.imp);
     if (QA.cobrado === 'si') { o.cobrado = 'si'; o.fecha_cobro = todayStr(); }
@@ -872,7 +933,7 @@ let LOTE = null;
 function sheetLote() {
   const t = S.tipoSel || tiposList()[0];
   const ya = new Set(ING().filter(i => (i.fecha || '').slice(0, 7) === S.month && lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id));
-  const hist = new Set(ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id));
+  const hist = new Set([...ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id), ...S.fin.clientes.filter(c => metaOf(c.id).tipo === t).map(c => c.id)]);
   LOTE = S.fin.clientes.filter(c => !ya.has(c.id)).map(c => ({ id: c.id, nombre: c.nombre, on: hist.has(c.id), imp: String(lastPart(c.id, t) || num(c.tarifa) || '') }))
     .sort((a, b) => (b.on - a.on) || a.nombre.localeCompare(b.nombre));
   renderLote();
@@ -885,7 +946,7 @@ function renderLote() {
     <span class="muted" style="font-size:13px">Marca los atletas que planificas este mes y revisa el importe. Se apuntan como <b>pendientes de cobro</b>.</span>
     ${LOTE.length ? `<div class="col" style="gap:8px">${LOTE.map((x, k) => `<div class="row" style="gap:10px;background:var(--bg);border-radius:14px;padding:6px 10px">
       <input type="checkbox" id="lt${k}" ${x.on ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--dark);flex:none" onchange="LOTE[${k}].on=this.checked;updLote()">
-      <label for="lt${k}" class="grow" style="font-size:14px;font-weight:600">${esc(x.nombre)}</label>
+      <label for="lt${k}" class="grow" style="font-size:14px;font-weight:600">${esc(x.nombre)}${sesionesDe(x.id, S.month) ? `<span class="muted" style="display:block;font-size:11px;font-weight:500">${ses(sesionesDe(x.id, S.month))} en agenda</span>` : ''}</label>
       <input class="in" aria-label="Importe de ${esc(x.nombre)}" inputmode="decimal" value="${esc(x.imp)}" placeholder="€" style="width:100px;background:var(--card);font-weight:700;text-align:right" oninput="LOTE[${k}].imp=this.value;updLote()">
     </div>`).join('')}</div>` : `<div class="empty">Todos tus clientes ya están apuntados este mes.</div>`}
     <div class="row" style="gap:8px"><input class="in" id="ltNuevo" placeholder="Atleta nuevo" style="background:var(--bg)"><input class="in" id="ltImp" inputmode="decimal" placeholder="€" style="width:90px;background:var(--bg);text-align:right"><button type="button" class="iconbtn" aria-label="Añadir atleta a la lista" style="background:var(--dark)" onclick="loteNuevo()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button></div>
@@ -969,7 +1030,8 @@ function pickCliente(id, silent) {
   if (!FF.id && !FF._touched) {
     // copia el desglose del último ingreso de ese cliente; si no hay, su importe habitual
     const last = ING().filter(i => i.cliente_id === id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
-    FF._lin = last ? lineasOf(last).map(l => ({ tipo: l.tipo || tiposList()[0], importe: l.importe ? String(l.importe) : '', detalle: l.detalle })) : [{ tipo: tiposList()[0], importe: c.tarifa || '', detalle: '' }];
+    const defT = metaOf(id).tipo || tiposList()[0];
+    FF._lin = last ? lineasOf(last).map(l => ({ tipo: l.tipo || defT, importe: l.importe ? String(l.importe) : '', detalle: l.detalle })) : [{ tipo: defT, importe: c.tarifa || '', detalle: '' }];
   }
   if (!silent) renderIngresoSheet();
 }
@@ -1058,6 +1120,7 @@ function sheetCliente(id, back) {
   CC_back = !!back;
   const src = id ? S.fin.clientes.find(x => x.id === id) : null;
   CC = src ? Object.assign({}, src) : { nombre: '', nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' };
+  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || '';
   renderClienteSheet();
 }
 function renderClienteSheet() {
@@ -1065,6 +1128,14 @@ function renderClienteSheet() {
     <h1 style="font-size:24px">${CC.id ? 'Editar cliente' : 'Nuevo cliente'}</h1>
     <label class="f">Nombre<input class="in" required value="${esc(CC.nombre)}" oninput="CC.nombre=this.value"></label>
     <label class="f">Importe habitual (€)<input class="in" inputmode="decimal" value="${esc(CC.tarifa)}" oninput="CC.tarifa=this.value" placeholder="Se rellena solo al apuntar un ingreso"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">Área en la agenda</span><div class="chips" style="flex-wrap:wrap">
+      <button type="button" class="chip ${!CC._area ? 'on' : ''}" style="${!CC._area ? '' : 'background:var(--bg)'}" onclick="CC._area='';renderClienteSheet()">Ninguna</button>
+      ${S.cats.map(k => `<button type="button" class="chip ${CC._area === k.id ? 'on' : ''}" style="${CC._area === k.id ? '' : `background:${k.bg};color:${k.fg}`}" onclick="CC._area='${k.id}';renderClienteSheet()">${esc(k.nombre)}</button>`).join('')}
+      <button type="button" class="chip" style="background:var(--bg)" onclick="sheetArea(null,'cliente')">+ Nueva área</button></div>
+      <span class="muted" style="font-size:12px">Los eventos con su nombre en el título se pintan de ese color.</span></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Concepto en finanzas</span><div class="chips" style="flex-wrap:wrap">
+      <button type="button" class="chip ${!CC._tipo ? 'on' : ''}" style="${!CC._tipo ? '' : 'background:var(--bg)'}" onclick="CC._tipo='';renderClienteSheet()">Ninguno</button>
+      ${tiposList().map(t => `<button type="button" class="chip ${CC._tipo === t ? 'on' : ''}" style="${CC._tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="CC._tipo='${esc(t).replace(/'/g, '')}';renderClienteSheet()">${esc(t)}</button>`).join('')}</div></div>
     <div class="grid2"><label class="f">NIF / CIF<input class="in" value="${esc(CC.nif)}" oninput="CC.nif=this.value" placeholder="Para cuando factures"></label><label class="f">Email<input class="in" type="email" value="${esc(CC.email)}" oninput="CC.email=this.value"></label></div>
     <label class="f">Notas<textarea class="in" oninput="CC.notas=this.value" placeholder="Ej. paga a 30 días, factura trimestral…">${esc(CC.notas)}</textarea></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${CLIENT_COLORS.map(c => `<button type="button" aria-label="Color ${c}" onclick="CC.color='${c}';renderClienteSheet()" style="width:36px;height:36px;border-radius:12px;border:${CC.color === c ? '3px solid var(--ink)' : '0'};background:${c}"></button>`).join('')}</div></div>
@@ -1075,10 +1146,15 @@ function renderClienteSheet() {
 async function guardarCliente(ev) {
   ev.preventDefault();
   try {
-    const c = await api('saveCliente', { data: CC });
+    const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC); delete data._area; delete data._tipo;
+    if (!data.id) data.id = uid();
+    const prevArea = metaOf(data.id).area || '';
+    const c = await api('saveCliente', { data });
+    if (area !== prevArea || tipo !== (metaOf(c.id).tipo || '')) await saveMeta(c.id, { area, tipo });
+    if (area !== prevArea) await syncAreaKeywords(c.nombre, area, prevArea);
     const i = S.fin.clientes.findIndex(x => x.id === c.id); if (i >= 0) S.fin.clientes[i] = c; else S.fin.clientes.push(c);
     LS.set('af_fin_cache', S.fin); toast('Cliente guardado');
-    if (CC_back && FF) { FF.cliente_id = c.id; if (!FF.importe) FF.importe = c.tarifa || ''; renderIngresoSheet(); } else { closeSheet(); render(); }
+    if (CC_back && FF) { FF.cliente_id = c.id; FF._touched = false; pickCliente(c.id); } else { closeSheet(); render(); }
   } catch (e) { toast(e.message); }
 }
 async function borrarCliente(id) {
@@ -1124,9 +1200,10 @@ function viewAjustes() {
       <button class="btn dark" onclick="guardarEmisor()">Guardar</button>
     </div>` : ''}
     <div class="card stack" style="gap:8px">
-      <b>Colores de la agenda</b>
-      <span class="muted" style="font-size:13px">Cada evento se colorea según palabras de su título o según su calendario. Se edita en la hoja <b>Categorias</b> de tu Google Sheet.</span>
-      <div class="legend">${S.cats.map(c => `<span><i style="background:${c.fg}"></i>${esc(c.nombre)}</span>`).join('')}</div>
+      <b>Áreas de la agenda</b>
+      <span class="muted" style="font-size:13px">Cada evento toma el color de su área: por el nombre del cliente en el título, por palabras clave o por su calendario.</span>
+      <div class="col" style="gap:6px">${S.cats.map(c => `<button class="row" style="border:0;background:${c.bg};color:${c.fg};border-radius:12px;padding:10px 12px;font-weight:700;font-size:13px;text-align:left" onclick="sheetArea('${c.id}')"><span class="grow">${esc(c.nombre)}</span><span style="font-weight:500;font-size:12px">${clientsOfArea(c.id).length ? clientsOfArea(c.id).length + ' clientes · ' : ''}editar ›</span></button>`).join('')}</div>
+      <button class="btn" style="background:var(--bg)" onclick="sheetArea(null)">+ Añadir área (p. ej. Best Athletes)</button>
     </div>
     <div class="card stack" style="gap:8px">
       <b>Widget del iPhone</b>
@@ -1172,6 +1249,54 @@ async function copiarWidget() {
     code = code.replace("const API = ''", "const API = '" + (S.cfg.api || '') + "'").replace("const TOKEN = ''", "const TOKEN = '" + (S.cfg.token || '') + "'").replace(/const APP_URL = '[^']*'/, "const APP_URL = '" + location.href.split('#')[0] + "'");
     await navigator.clipboard.writeText(code); toast('Código copiado. Pégalo en Scriptable');
   } catch (e) { toast('No se pudo copiar: abre widget.js'); }
+}
+
+/* =================== ÁREAS DE LA AGENDA =================== */
+// añade el nombre del cliente como palabra clave del área (así el backend y el widget también lo colorean)
+async function syncAreaKeywords(nombre, area, prevArea) {
+  const n = (nombre || '').trim(); if (!n) return;
+  for (const k of S.cats) {
+    const kws = String(k.palabras_clave || '').split(',').map(x => x.trim()).filter(Boolean);
+    const has = kws.some(x => x.toLowerCase() === n.toLowerCase());
+    let next = null;
+    if (k.id === area && !has) next = [n.toLowerCase(), ...kws];
+    else if (k.id === prevArea && has) next = kws.filter(x => x.toLowerCase() !== n.toLowerCase());
+    if (next) { k.palabras_clave = next.join(','); try { await api('saveCategoria', { data: k }); } catch (e) {} }
+  }
+  LS.set('af_cats', S.cats); markStale();
+}
+let AR = null, AR_from = '';
+function sheetArea(id, from) {
+  AR_from = from || '';
+  const src = id ? S.cats.find(k => k.id === id) : null;
+  const used = S.cats.map(k => k.fg);
+  const free = AREA_PALETTE.find(p => !used.includes(p[0])) || AREA_PALETTE[0];
+  AR = src ? Object.assign({}, src) : { id: '', nombre: '', fg: free[0], bg: free[1], palabras_clave: '', calendario: '' };
+  renderArea();
+}
+function renderArea() {
+  const cls = AR.id ? clientsOfArea(AR.id) : [];
+  openSheet(`<form class="stack" onsubmit="guardarArea(event)">
+    <h1 style="font-size:24px">${AR.id ? 'Editar área' : 'Nueva área'}</h1>
+    <label class="f">Nombre<input class="in" required value="${esc(AR.nombre)}" oninput="AR.nombre=this.value" placeholder="Ej. Best Athletes"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${AREA_PALETTE.map(p => `<button type="button" aria-label="Color ${p[0]}" onclick="AR.fg='${p[0]}';AR.bg='${p[1]}';renderArea()" style="width:40px;height:40px;border-radius:12px;background:${p[1]};border:${AR.fg === p[0] ? '3px solid ' + p[0] : '0'};display:flex;align-items:center;justify-content:center"><i style="width:14px;height:14px;border-radius:7px;background:${p[0]}"></i></button>`).join('')}</div></div>
+    <div style="background:${AR.bg};color:${AR.fg};border-radius:12px;padding:8px 12px;font-weight:700;font-size:13px">Así se verá: ${esc(AR.nombre || 'Nueva área')} · 10:00</div>
+    <label class="f">Palabras del título que lo activan (opcional)<input class="in" value="${esc(AR.palabras_clave)}" oninput="AR.palabras_clave=this.value" placeholder="best athletes, ba"></label>
+    ${cls.length ? `<span class="muted" style="font-size:13px">Clientes en esta área: ${cls.map(c => esc(c.nombre)).join(', ')}</span>` : `<span class="muted" style="font-size:13px">Asigna clientes a esta área desde su ficha (Finanzas → Clientes).</span>`}
+    <button class="btn dark" type="submit">Guardar área</button>
+  </form>`);
+}
+async function guardarArea(ev) {
+  ev.preventDefault();
+  if (!AR.nombre.trim()) return;
+  const o = Object.assign({}, AR, { nombre: AR.nombre.trim() });
+  if (!o.id) o.id = 'a' + uid().slice(0, 6);
+  try {
+    const k = await api('saveCategoria', { data: o });
+    const i = S.cats.findIndex(x => x.id === o.id); if (i >= 0) S.cats[i] = Object.assign({}, o, k); else S.cats.push(Object.assign({}, o, k));
+    LS.set('af_cats', S.cats); markStale(); toast('Área guardada');
+    if (AR_from === 'cliente' && CC) { CC._area = o.id; renderClienteSheet(); } else { closeSheet(); render(); }
+  } catch (e) { toast(e.message); }
 }
 
 /* =================== SHEET =================== */
