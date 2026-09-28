@@ -311,6 +311,7 @@ async function demoApi(action, p) {
     case 'ping': return { ok: true };
     case 'agenda': return { events: db.events.filter(e => e.start >= p.from && e.start < p.to).sort((a, b) => a.start < b.start ? -1 : 1), categorias: db.cats };
     case 'createEvent': { const e = { id: uid(), cal: 'Demo', calId: 'demo', title: d.title, start: d.start + ':00', end: d.end + ':00', allDay: false, location: d.location || '', cat: d.cat }; db.events.push(e); save(); return e; }
+    case 'updateEvent': { const e = db.events.find(x => x.id === d.id); if (!e) throw new Error('No encuentro el evento'); e.title = d.title; e.start = d.start + ':00'; e.end = d.end + ':00'; e.location = d.location || ''; save(); return e; }
     case 'deleteEvent': return rm('events', d.id);
     case 'finanzas': return { clientes: db.clientes, ingresos: db.ingresos, gastos: db.gastos, config: db.config };
     case 'saveCliente': return up('clientes', d);
@@ -490,9 +491,37 @@ function sheetDetalle(id, start) {
     </div>
     <div class="row">
       <a class="btn outline grow" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink)" href="https://calendar.google.com/calendar/r/day/${dd.getFullYear()}/${dd.getMonth() + 1}/${dd.getDate()}" target="_blank" rel="noopener">Abrir en Google Calendar</a>
-      <button class="btn danger" onclick="borrarEvento('${esc(e.id)}','${esc(e.calId)}')">Borrar</button>
+    </div>
+    <div class="row">
+      ${e.allDay ? '' : `<button class="btn outline grow" onclick="sheetEditar('${esc(e.id)}','${e.start}')">Editar</button>`}
+      <button class="btn danger grow" onclick="borrarEvento('${esc(e.id)}','${esc(e.calId)}')">Borrar</button>
     </div>
   </div>`);
+}
+function sheetEditar(id, start) {
+  const e = findEvent(id, start); if (!e) return;
+  openSheet(`<form class="stack" onsubmit="guardarEdicion(event,'${esc(e.id)}','${esc(e.calId)}')">
+    <h1 style="font-size:24px">Editar evento</h1>
+    <label class="f">Título<input class="in" name="title" required value="${esc(e.title)}"></label>
+    <label class="f">Día<input class="in" type="date" name="date" value="${e.start.slice(0, 10)}" required></label>
+    <div class="grid2">
+      <label class="f">Empieza<input class="in" type="time" name="start" value="${hm(e.start)}" required></label>
+      <label class="f">Termina<input class="in" type="time" name="end" value="${hm(e.end)}" required></label>
+    </div>
+    <label class="f">Lugar<input class="in" name="location" value="${esc(e.location || '')}" placeholder="Opcional"></label>
+    <button class="btn dark" type="submit">Guardar cambios</button>
+  </form>`);
+}
+async function guardarEdicion(ev, id, calId) {
+  ev.preventDefault();
+  const f = ev.target, btn = f.querySelector('button[type=submit]');
+  const date = f.date.value;
+  if (f.end.value <= f.start.value) { toast('La hora de fin debe ser posterior'); return; }
+  btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  try {
+    await api('updateEvent', { data: { id, calId, title: f.title.value.trim(), start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim() } });
+    closeSheet(); toast('Evento actualizado'); S.day = date; markStale(); loadWeek(mondayOf(date), true);
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar cambios'; }
 }
 async function borrarEvento(id, calId) {
   if (!confirm('¿Borrar este evento de tu Google Calendar?')) return;
