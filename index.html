@@ -86,6 +86,7 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .tl .lane{position:absolute;left:46px;right:0;top:0;bottom:0}
 .ev{position:absolute;border:0;border-radius:12px;padding:6px 10px;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:1px}
 .ev .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.ev{justify-content:center}
 .ev .t{font-size:14px;font-weight:700;color:var(--ink);line-height:1.2}
 .ev .s{font-size:12px}
 .ev.short{flex-direction:row;align-items:center;justify-content:space-between;padding:0 10px}
@@ -156,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v7';
+const VERSION = 'v8';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -240,6 +241,7 @@ function clientAreaRules() {
   return S.fin.clientes.filter(c => m[c.id] && m[c.id].area && S.cats.some(k => k.id === m[c.id].area) && (c.nombre || '').trim().length >= 3)
     .map(c => ({ n: c.nombre.trim().toLowerCase(), area: m[c.id].area })).sort((a, b) => b.n.length - a.n.length);
 }
+function evAreaMap() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.eventos_area) || '{}') || {}; } catch (e) { return {}; } }
 const clientsOfArea = area => S.fin ? S.fin.clientes.filter(c => metaOf(c.id).area === area) : [];
 const titleHas = (e, c) => (e.title || '').toLowerCase().includes((c.nombre || '').trim().toLowerCase());
 const isDemo = () => S.cfg.demo || !S.cfg.api;
@@ -429,7 +431,9 @@ const demoBanner = () => isDemo() ? `<div class="card stack" style="gap:10px;bac
 /* =================== AGENDA: HOY =================== */
 function weekEvents(mon) {
   const R = clientAreaRules();
+  const M = evAreaMap();
   return (S.agenda[mon] || []).filter(e => e && e.start).map(e => {
+    if (M[e.id] && S.cats.some(k => k.id === M[e.id])) return Object.assign({}, e, { cat: M[e.id] });
     if (!R.length) return e;
     const t = (e.title || '').toLowerCase(), r = R.find(r => t.includes(r.n));
     return r ? Object.assign({}, e, { cat: r.area }) : e;
@@ -497,11 +501,13 @@ function timeline(d, evs) {
     const c = catOf(it.e.cat);
     const top = (it.s - h0) * PX + 1, hgt = Math.max((it.en - it.s) * PX - 3, 22);
     const w = 100 / it.ncol, left = it.col * w;
-    const short = hgt < 60 || it.ncol > 2;
+    const short = hgt < 38 || it.ncol > 2, mid = !short && hgt < 60;
+    const nombreArea = it.e.cat === 'otro' ? 'Sin área' : c.nombre;
     const time = hm(it.e.start) + '–' + hm(it.e.end);
     html += `<button class="ev ${short ? 'short' : ''}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + ${it.col ? 2 : 0}px);width:calc(${w}% - ${it.ncol > 1 ? 2 : 0}px);background:${c.bg};color:${c.fg}" onclick="sheetDetalle('${esc(it.e.id)}','${it.e.start}')">` +
-      (short ? `<span class="t">${esc(it.e.title)}</span>${it.ncol < 3 ? `<span style="font-size:11px;font-weight:600;flex:none;margin-left:6px">${hm(it.e.start)}</span>` : ''}`
-             : `<span class="k">${esc(c.nombre)} · ${time}</span><span class="t">${esc(it.e.title)}</span>${it.e.location ? `<span class="s">${esc(it.e.location)}</span>` : ''}`) + `</button>`;
+      (short ? `<span class="t"><i style="display:inline-block;width:7px;height:7px;border-radius:4px;background:${c.fg};margin-right:6px;vertical-align:1px"></i>${esc(it.e.title)}</span>${it.ncol < 3 ? `<span style="font-size:11px;font-weight:600;flex:none;margin-left:6px">${hm(it.e.start)}</span>` : ''}`
+             : mid ? `<span class="k" style="font-size:9.5px">${esc(nombreArea)} · ${time}</span><span class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.e.title)}</span>`
+             : `<span class="k">${esc(nombreArea)} · ${time}</span><span class="t">${esc(it.e.title)}</span>${it.e.location ? `<span class="s">${esc(it.e.location)}</span>` : ''}`) + `</button>`;
   });
   html += `</div>`;
   if (d === todayStr()) {
@@ -521,8 +527,9 @@ function sheetDetalle(id, start) {
   const e = findEvent(id, start); if (!e) return;
   const c = catOf(e.cat), dd = parseD(e.start);
   openSheet(`<div class="stack">
-    <span class="badge" style="background:${c.bg};color:${c.fg};align-self:flex-start">${esc(c.nombre)}</span>
     <h1 style="font-size:24px">${esc(e.title)}</h1>
+    <div class="col" style="gap:6px"><span class="eyebrow">Área</span><div class="chips" style="flex-wrap:wrap">${S.cats.map(k => `<button type="button" class="chip ${e.cat === k.id ? 'on' : ''}" style="${e.cat === k.id ? `background:${k.fg};color:#fff` : `background:${k.bg};color:${k.fg}`}" onclick="asignarArea('${esc(e.id)}','${e.start}','${k.id}')">${esc(k.nombre)}</button>`).join('')}</div>
+      <label class="row" style="gap:8px;font-size:13px;color:var(--muted)"><input type="checkbox" id="arKwOn" checked style="width:18px;height:18px;accent-color:var(--dark)"> Usar también para eventos que contengan <input class="in" id="arKw" value="${esc(kwSugerida(e.title))}" style="height:34px;width:130px;padding:0 10px;background:var(--bg);font-size:13px"></label></div>
     <div class="col" style="gap:4px">
       <span>${DIAS[(dd.getDay() + 6) % 7]} ${dd.getDate()} ${MESES[dd.getMonth()]} · ${e.allDay ? 'todo el día' : hm(e.start) + '–' + hm(e.end)}</span>
       ${e.location ? `<span class="muted">${esc(e.location)}</span>` : ''}
@@ -561,6 +568,24 @@ async function guardarEdicion(ev, id, calId) {
     await api('updateEvent', { data: { id, calId, title: f.title.value.trim(), start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim() } });
     closeSheet(); toast('Evento actualizado'); S.day = date; markStale(); loadWeek(mondayOf(date), true);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar cambios'; }
+}
+function kwSugerida(t) {
+  const stop = ['entrenamiento', 'entreno', 'entrenar', 'sesion', 'sesión', 'clase', 'de', 'del', 'con', 'la', 'el', 'los', 'las', 'y', 'a', 'en', 'para', 'personal', 'online', '·', '-'];
+  const w = String(t || '').split(/[\s·\-|,:()]+/).filter(x => x && !stop.includes(x.toLowerCase()));
+  return w.length ? w.slice(-1)[0] : '';
+}
+async function asignarArea(id, start, area) {
+  if (!S.fin) { toast('Cargando…'); await loadFin(); if (!S.fin) return; }
+  const kwOn = $('#arKwOn') && $('#arKwOn').checked, kw = (($('#arKw') || {}).value || '').trim();
+  const M = evAreaMap(); M[id] = area; const v = JSON.stringify(M);
+  try {
+    await api('saveConfig', { data: { eventos_area: v } });
+    S.fin.config = Object.assign(S.fin.config || {}, { eventos_area: v }); LS.set('af_fin_cache', S.fin);
+    if (kwOn && kw.length >= 3) await syncAreaKeywords(kw, area, '');
+    toast('Área: ' + catOf(area).nombre + (kwOn && kw.length >= 3 ? ' · y todo lo que contenga «' + kw + '»' : ''));
+    closeSheet(); render();
+    if (kwOn && kw.length >= 3) loadWeek(mondayOf(S.day), true);
+  } catch (e) { toast(e.message); }
 }
 async function borrarEvento(id, calId) {
   if (!confirm('¿Borrar este evento de tu Google Calendar?')) return;
