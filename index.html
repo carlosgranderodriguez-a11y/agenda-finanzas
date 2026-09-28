@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v11';
+const VERSION = 'v12';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -218,13 +218,14 @@ const S = {
   filter: 'todos',
   tipoF: '',
   agenda: {},           // monday -> events
-  cats: LS.get('af_cats', DEFAULT_CATS),
+  cats: LS.get('af_cats', DEFAULT_CATS).filter(k => !LS.get('af_areas_off', []).includes(k.id)),
   fin: LS.get('af_fin_cache', null),
   loadingWeek: {},
   loadingFin: false
 };
 Object.assign(S.agenda, LS.get('af_agenda_cache', {}));
 const catOf = id => S.cats.find(c => c.id === id) || OTRO;
+function visibleCats(list) { const off = LS.get('af_areas_off', []); return list.filter(k => !off.includes(k.id)); }
 const AREA_PALETTE = [['#9C2F5B', '#F6DCE7'], ['#1F6E78', '#D3EBEE'], ['#5B6B12', '#E6ECCB'], ['#3B4A5E', '#DDE3EA'], ['#8A6A00', '#F4EABF'], ['#1B5E48', '#D6EDE2'], ['#2F3F9E', '#DCE1F6'], ['#A8471A', '#F7DDCC'], ['#5E3F82', '#E6DCF1'], ['#7A4E00', '#F3E4BF']];
 // datos extra de cada cliente (área de la agenda y concepto de finanzas), guardados en Config → clientes_meta
 function cmeta() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.clientes_meta) || '{}') || {}; } catch (e) { return {}; } }
@@ -397,6 +398,7 @@ async function demoApi(action, p) {
     case 'saveGasto': return up('gastos', d);
     case 'deleteGasto': return rm('gastos', d.id);
     case 'saveConfig': Object.assign(db.config, d); save(); return db.config;
+    case 'deleteCategoria': db.cats = db.cats.filter(x => x.id !== d.id); save(); return { removed: 1 };
     case 'saveCategoria': { const i = db.cats.findIndex(x => x.id === d.id); if (i >= 0) db.cats[i] = d; else db.cats.push(d); save(); return d; }
   }
   throw new Error('Acción demo desconocida ' + action);
@@ -411,7 +413,7 @@ async function loadWeek(mon, force) {
   try {
     const r = await api('agenda', { from: mon, to: addDays(mon, 7) });
     S.agenda[mon] = r.events;
-    if (r.categorias && r.categorias.length) { S.cats = r.categorias; LS.set('af_cats', S.cats); }
+    if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
     LS.set('af_agenda_cache', keep);
   } catch (e) { S._failW = S._failW || {}; S._failW[mon] = Date.now(); if (!e.net) toast('Agenda: ' + e.message); }
@@ -1375,7 +1377,28 @@ function renderArea() {
     <label class="f">Palabras del título que lo activan (opcional)<input class="in" value="${esc(AR.palabras_clave)}" oninput="AR.palabras_clave=this.value" placeholder="best athletes, ba"></label>
     ${cls.length ? `<span class="muted" style="font-size:13px">Clientes en esta área: ${cls.map(c => esc(c.nombre)).join(', ')}</span>` : `<span class="muted" style="font-size:13px">Asigna clientes a esta área desde su ficha (Finanzas → Clientes).</span>`}
     <button class="btn dark" type="submit">Guardar área</button>
+    ${AR.id ? `<button class="btn danger" type="button" onclick="borrarArea('${AR.id}')">Borrar área</button>` : ''}
   </form>`);
+}
+async function borrarArea(id) {
+  const k = S.cats.find(x => x.id === id); if (!k) return;
+  const cls = clientsOfArea(id);
+  if (!confirm('¿Borrar el área «' + k.nombre + '»?' + (cls.length ? ' Sus ' + cls.length + ' clientes se quedarán sin área.' : '') + ' Sus eventos pasarán a «Sin área».')) return;
+  try {
+    let hidden = false;
+    try { await api('deleteCategoria', { data: { id } }); }
+    catch (e) { if (/desconocida/i.test(e.message)) hidden = true; else throw e; }
+    if (hidden) { const off = LS.get('af_areas_off', []); off.push(id); LS.set('af_areas_off', off); }
+    // limpiar referencias: clientes y eventos con esa área
+    if (S.fin) {
+      const m = cmeta(); let ch = false; Object.keys(m).forEach(cid => { if (m[cid].area === id) { m[cid].area = ''; ch = true; } });
+      const M = evAreaMap(); let ch2 = false; Object.keys(M).forEach(eid => { if (M[eid] === id) { delete M[eid]; ch2 = true; } });
+      const data = {}; if (ch) data.clientes_meta = JSON.stringify(m); if (ch2) data.eventos_area = JSON.stringify(M);
+      if (ch || ch2) { await api('saveConfig', { data }); Object.assign(S.fin.config, data); LS.set('af_fin_cache', S.fin); }
+    }
+    S.cats = S.cats.filter(x => x.id !== id); LS.set('af_cats', S.cats); markStale();
+    closeSheet(); toast(hidden ? 'Área oculta (para borrarla del todo, actualiza el Code.gs)' : 'Área borrada'); render();
+  } catch (e) { toast(e.message); }
 }
 async function guardarArea(ev) {
   ev.preventDefault();

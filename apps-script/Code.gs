@@ -91,6 +91,8 @@ function handle_(p) {
       deleteGasto: function () { return remove_('Gastos', data.id); },
       saveConfig: function () { Object.keys(data).forEach(function (k) { setConfig_(k, data[k]); }); return getConfig_(); },
       saveCategoria: function () { return upsert_('Categorias', data); },
+      deleteCategoria: function () { return remove_('Categorias', data.id); },
+      updateEvent: function () { return updateEvent_(data); },
       widget: function () { return widget_(); }
     };
     if (!A[p.action]) throw new Error('Acción desconocida: ' + p.action);
@@ -261,6 +263,17 @@ function createEvent_(d) {
   var cal = targetCalendar_(d.cat);
   var ev = cal.createEvent(d.title, parseLocal_(d.start), parseLocal_(d.end), { location: d.location || '' });
   return { id: ev.getId(), cal: cal.getName() };
+}
+
+function updateEvent_(d) {
+  var cal = d.calId ? CalendarApp.getCalendarById(d.calId) : CalendarApp.getDefaultCalendar();
+  var ev = cal.getEventById(d.id);
+  if (!ev) throw new Error('No encuentro el evento');
+  if (ev.isRecurringEvent()) throw new Error('Es un evento recurrente: edítalo desde Google Calendar');
+  if (d.title) ev.setTitle(d.title);
+  if (d.start && d.end) ev.setTime(parseLocal_(d.start), parseLocal_(d.end));
+  if (d.location !== undefined) ev.setLocation(d.location || '');
+  return { id: ev.getId() };
 }
 
 function deleteEvent_(d) {
