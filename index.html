@@ -157,7 +157,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v15';
+const VERSION = 'v16';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1439,7 +1439,8 @@ function sheetFicha(cid) {
       <button class="chip" style="background:var(--bg)" onclick="CC_back='ficha';sheetCliente('${cid}');CC_back='ficha'">Editar</button></div>
     ${st ? `<div class="card stack" style="background:var(--bg);gap:10px">
       <div class="row between" style="align-items:flex-end"><div class="col"><span class="eyebrow">${a ? 'Bono actual' : 'Sin bono activo'}</span><span class="big" style="font-size:34px">${st.quedan} <span style="font-size:15px;font-weight:600">${st.quedan === 1 ? 'sesión' : 'sesiones'} ${st.quedan === 1 ? 'queda' : 'quedan'}</span></span></div>${S.loadingBonoEv ? '<span class="spin"></span>' : ''}</div>
-      ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>` : ''}
+      ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>
+        <div class="row" style="gap:8px"><button class="chip" style="background:var(--card)" onclick="S._fichaId=null;sheetIngreso('${a.ingId}')">Editar este bono</button><button class="chip" style="background:var(--badbg);color:var(--bad)" onclick="borrarBono('${a.ingId}','${cid}')">Borrar este bono</button></div>` : ''}
       ${a && a.ses.length ? `<div class="col" style="gap:4px">${a.ses.map((s, k) => `<span style="font-size:13px">${s.start < nowLocal() ? '●' : '○'} Sesión ${k + 1} · ${fmtS(s)}</span>`).join('')}</div>` : ''}
       ${st.reservadas && !a ? `<span class="muted" style="font-size:13px">${st.reservadas} reservadas en la agenda</span>` : ''}
       ${st.sinBonoPast ? `<div style="background:var(--badbg);color:var(--bad);border-radius:12px;padding:8px 10px;font-size:13px;font-weight:600">${st.sinBonoPast} ${st.sinBonoPast === 1 ? 'sesión hecha' : 'sesiones hechas'} sin bono ni pago: ${st.sinBono.filter(s => s.start < nowLocal()).map(fmtS).join(', ')}</div>` : ''}
