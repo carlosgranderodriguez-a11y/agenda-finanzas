@@ -285,7 +285,15 @@ function targetCalendar_(catId) {
 
 function createEvent_(d) {
   var cal = targetCalendar_(d.cat);
-  var ev = cal.createEvent(d.title, parseLocal_(d.start), parseLocal_(d.end), { location: d.location || '' });
+  var opts = { location: d.location || '' };
+  if (d.repetir && num_(d.repetir.cada) > 0) {
+    // evento semanal (cada 1 o 2 semanas), hasta una fecha o sin fin
+    var rule = CalendarApp.newRecurrence().addWeeklyRule().interval(num_(d.repetir.cada));
+    if (d.repetir.hasta) { var h = parseLocal_(d.repetir.hasta); h.setHours(23, 59, 0, 0); rule = rule.until(h); }
+    var serie = cal.createEventSeries(d.title, parseLocal_(d.start), parseLocal_(d.end), rule, opts);
+    return { id: serie.getId(), cal: cal.getName(), serie: true };
+  }
+  var ev = cal.createEvent(d.title, parseLocal_(d.start), parseLocal_(d.end), opts);
   return { id: ev.getId(), cal: cal.getName() };
 }
 

@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v22';
+const VERSION = 'v23';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -413,7 +413,7 @@ async function demoApi(action, p) {
   switch (action) {
     case 'ping': return { ok: true };
     case 'agenda': return { events: db.events.filter(e => e.start >= p.from && e.start < p.to).sort((a, b) => a.start < b.start ? -1 : 1), categorias: db.cats };
-    case 'createEvent': { const e = { id: uid(), cal: 'Demo', calId: 'demo', title: d.title, start: d.start + ':00', end: d.end + ':00', allDay: false, location: d.location || '', cat: d.cat }; db.events.push(e); save(); return e; }
+    case 'createEvent': if (d.repetir) { const sid = uid(), lim = d.repetir.hasta || addDays(d.start.slice(0, 10), 182); for (let k = 0; ; k++) { const day = addDays(d.start.slice(0, 10), k * 7 * d.repetir.cada); if (day > lim) break; db.events.push({ id: sid, cal: 'Demo', calId: 'demo', title: d.title, start: day + d.start.slice(10) + ':00', end: day + d.end.slice(10) + ':00', allDay: false, location: d.location || '', cat: d.cat }); } save(); return { id: sid }; } { const e = { id: uid(), cal: 'Demo', calId: 'demo', title: d.title, start: d.start + ':00', end: d.end + ':00', allDay: false, location: d.location || '', cat: d.cat }; db.events.push(e); save(); return e; }
     case 'updateEvent': { const e = db.events.find(x => x.id === d.id); if (!e) throw new Error('No encuentro el evento'); e.title = d.title; e.start = d.start + ':00'; e.end = d.end + ':00'; e.location = d.location || ''; save(); return e; }
     case 'deleteEvent': return rm('events', d.id);
     case 'finanzas': return { clientes: db.clientes, ingresos: db.ingresos, gastos: db.gastos, config: db.config };
@@ -698,6 +698,10 @@ function sheetEvento(atH) {
       <label class="f">Termina<input class="in" type="time" name="end" value="${plus1h(startV)}" required></label>
     </div>
     <label class="f">Lugar<input class="in" name="location" placeholder="Opcional"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">Repetir</span>
+      <div class="opt" id="repOpt"><button type="button" class="on" data-v="0" onclick="pickRep(this)">No</button><button type="button" data-v="1" onclick="pickRep(this)">Cada semana</button><button type="button" data-v="2" onclick="pickRep(this)">Cada 2 semanas</button></div>
+      <div class="grid2" id="repHasta" style="display:none;align-items:end"><label class="f">Hasta<input class="in" type="date" name="hasta" value="${addDays(d, 90)}"></label><label class="row" style="gap:8px;font-size:13px;height:46px"><input type="checkbox" name="sinfin" style="width:20px;height:20px;accent-color:var(--dark)" onchange="this.form.hasta.disabled=this.checked"> Sin fecha de fin</label></div>
+    </div>
     <button class="btn dark" type="submit">Guardar en Google Calendar</button>
   </form>`);
 }
@@ -724,6 +728,10 @@ function tapTimeline(ev, h0) {
   let h = h0 + y / 46; h = Math.round(h * 2) / 2; if (h < 0) h = 0; if (h > 23) h = 23;
   sheetEvento(h);
 }
+function pickRep(b) {
+  document.querySelectorAll('#repOpt button').forEach(x => x.classList.toggle('on', x === b));
+  $('#repHasta').style.display = b.dataset.v === '0' ? 'none' : 'grid';
+}
 function pickCat(b, keepCli) {
   document.querySelectorAll('#catpick .chip').forEach(x => { const c = catOf(x.dataset.cat); x.classList.remove('on'); x.style.background = c.bg; x.style.color = c.fg; });
   b.classList.add('on'); b.style.background = ''; b.style.color = '';
@@ -741,8 +749,11 @@ async function crearEvento(ev) {
   if (f.end.value <= f.start.value) { toast('La hora de fin debe ser posterior'); return; }
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   try {
-    await api('createEvent', { data: { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim() } });
-    closeSheet(); toast('Evento creado'); S.day = date; markStale(); go('hoy'); loadWeek(mondayOf(date), true);
+    const cada = +((document.querySelector('#repOpt button.on') || {}).dataset || {}).v || 0;
+    const repetir = cada ? { cada, hasta: f.sinfin.checked ? '' : f.hasta.value } : null;
+    if (repetir && repetir.hasta && repetir.hasta < date) { toast('La fecha «hasta» es anterior al evento'); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; return; }
+    await api('createEvent', { data: { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir } });
+    closeSheet(); toast(repetir ? 'Evento semanal creado' + (repetir.hasta ? ' hasta el ' + fmtLong(repetir.hasta) : ' sin fecha de fin') : 'Evento creado'); S.day = date; markStale(); go('hoy'); loadWeek(mondayOf(date), true);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; }
 }
 
