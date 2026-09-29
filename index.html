@@ -136,7 +136,10 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .backdrop.show{display:block}
 .sheet{position:fixed;left:50%;transform:translate(-50%,105%);bottom:0;width:100%;max-width:560px;max-height:92vh;overflow:auto;background:var(--card);border-radius:24px 24px 0 0;z-index:41;padding:10px 18px calc(24px + var(--safe-b));transition:transform .25s ease}
 .sheet.show{transform:translate(-50%,0)}
-.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto 12px}
+.sheet .grab{width:40px;height:5px;border-radius:3px;background:var(--line);margin:0 auto}
+.shbar{position:sticky;top:-10px;z-index:3;display:flex;align-items:center;justify-content:space-between;background:var(--card);margin:-10px -18px 8px;padding:10px 12px 6px}
+.shbtn{height:40px;min-width:40px;border:0;border-radius:12px;background:var(--bg);display:inline-flex;align-items:center;justify-content:center;gap:2px;padding:0 10px;font-weight:700;font-size:13px;color:var(--ink)}
+.shbtn svg{width:18px;height:18px}
 .toast{position:fixed;left:50%;bottom:calc(92px + var(--safe-b));transform:translateX(-50%);background:var(--dark);color:#fff;padding:10px 16px;border-radius:12px;font-size:13px;font-weight:600;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
 .toast.show{opacity:1}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--ink);border-radius:50%;animation:sp 0.8s linear infinite;vertical-align:-2px}
@@ -158,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v17';
+const VERSION = 'v18';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -192,12 +195,14 @@ const hm = s => String(s).slice(11, 16);
 const hoursOf = s => { const d = parseD(s); return d.getHours() + d.getMinutes() / 60; };
 const num = v => { const n = parseFloat(String(v == null ? '' : v).replace(',', '.')); return isNaN(n) ? 0 : n; };
 const eur = (n, dec) => {
+  if (S && S.hide) return '•••• €';
   const neg = n < 0; n = Math.abs(n);
   const d = dec === false ? 0 : (Math.round(n) === n && dec !== true ? 0 : 2);
   const [i, f] = n.toFixed(d).split('.');
   return (neg ? '−' : '') + i.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (f ? ',' + f : '') + ' €';
 };
 const eur0 = n => eur(Math.round(n), false);
+const eurRaw = (n, dec) => { const h = S.hide; S.hide = false; const r = eur(n, dec); S.hide = h; return r; };
 const hfmt = h => (Math.round(h * 10) / 10).toString().replace('.', ',');
 const uid = () => Math.random().toString(36).slice(2, 10);
 const initials = s => String(s || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join('');
@@ -225,6 +230,8 @@ function ask(msg, okText, withInput) {
     if (withInput) setTimeout(() => $('#askIn').focus(), 50);
   });
 }
+function toggleHide() { S.hide = !S.hide; LS.set('af_hide', S.hide); render(); if (SH.cur) openSheet(SH.cur); }
+const eyeBtn = (dark) => `<button class="iconbtn" aria-label="${S.hide ? 'Mostrar importes' : 'Ocultar importes'}" onclick="toggleHide()" style="width:40px;height:40px;${dark ? 'background:#26282E;color:#fff' : ''}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${S.hide ? '<path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3.2 3.9M6.1 6.1C3.6 7.8 2 12 2 12s4 7 10 7a9.6 9.6 0 0 0 5-1.4M9.9 9.9a3 3 0 0 0 4.2 4.2"/>' : '<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'}</svg></button>`;
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); }
 
 /* ---------- state ---------- */
@@ -234,6 +241,7 @@ const S = {
   month: todayStr().slice(0, 7),
   filter: 'todos',
   tipoF: '',
+  hide: LS.get('af_hide', false),
   agenda: {},           // monday -> events
   cats: LS.get('af_cats', DEFAULT_CATS).filter(k => !LS.get('af_areas_off', []).includes(k.id)),
   fin: LS.get('af_fin_cache', null),
@@ -464,7 +472,7 @@ function markStale() { S.monthEv = {}; Object.keys(S.agenda).forEach(k => { if (
 const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', bonos: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
 function route() { const h = (location.hash || '#hoy').slice(1); return ROUTES[h] ? h : 'hoy'; }
 function go(h) { if (location.hash === '#' + h) render(); else location.hash = h; }
-window.addEventListener('hashchange', () => { closeSheet(); window.scrollTo(0, 0); render(); });
+window.addEventListener('hashchange', () => { if (sheetShown()) closeSheet(true); window.scrollTo(0, 0); render(); });
 
 function render() {
   const r = route();
@@ -823,8 +831,9 @@ function viewResumen() {
       <button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button>
     </div>
     <div class="hero">
+      <div class="row between" style="margin-bottom:-6px"><span></span>${eyeBtn(true)}</div>
       <div class="row between" style="align-items:flex-end">
-        <div class="col"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Ingresos del mes</span><span class="big" style="font-size:40px">${eur0(st.ingresos)}</span></div>
+        <div class="col"><span class="row" style="gap:6px;font-size:12px;color:var(--dmuted);font-weight:600">Ingresos del mes</span><span class="big" style="font-size:40px">${eur0(st.ingresos)}</span></div>
         ${diff !== null ? `<span style="background:${diff >= 0 ? '#1E4B3C' : '#4B231E'};color:${diff >= 0 ? '#7FD1AE' : '#F2A493'};border-radius:10px;padding:4px 8px;font-size:12px;font-weight:700">${diff >= 0 ? '+' : ''}${diff}% vs ${MES_C[parseD(monthAdd(ym, -1) + '-01').getMonth()]}</span>` : ''}
       </div>
       <div class="grid3">
@@ -874,7 +883,7 @@ function viewIngresos() {
   const pend = all.filter(i => !cobrado(i)), sinFac = all.filter(i => !facturado(i));
   return `<div class="stack">
     ${demoBanner()}
-    <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px">Ingresos</h1><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumP(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
+    <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px" class="row">Ingresos ${eyeBtn()}</h1><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumP(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
     <div class="grid2">
       <div class="stat" style="background:var(--warnbg)"><span style="color:var(--warn)">Te deben</span><span>${eur0(sumI(pend))}</span></div>
       <div class="stat" style="background:#DCE1F6"><span style="color:var(--accent)">Sin facturar</span><span>${eur0(sumI(sinFac))}</span></div>
@@ -1063,7 +1072,7 @@ function renderLote() {
 }
 function updLote() {
   const sel = LOTE.filter(x => x.on && num(x.imp));
-  $('#loteTot').textContent = eur(sel.reduce((s, x) => s + num(x.imp), 0));
+  $('#loteTot').textContent = eurRaw(sel.reduce((s, x) => s + num(x.imp), 0));
   $('#loteBtn').textContent = 'Apuntar ' + sel.length + ' atleta' + (sel.length === 1 ? '' : 's');
 }
 async function loteNuevo() {
@@ -1110,7 +1119,7 @@ function renderIngresoSheet() {
       <div class="chips" style="flex-wrap:wrap">${S.fin.clientes.map(c => `<button type="button" class="chip ${FF.cliente_id === c.id ? 'on' : ''}" style="${FF.cliente_id === c.id ? '' : 'background:var(--bg)'}" onclick="pickCliente('${c.id}')">${esc(c.nombre)}</button>`).join('')}
       <button type="button" class="chip" style="background:var(--bg)" onclick="sheetCliente(null,true)">+ Cliente</button></div>
     </div>
-    <div class="col" style="gap:8px"><div class="row between"><span class="eyebrow">¿Por qué concepto?</span><span class="big" style="font-size:24px" id="ffTot">${eur(linTotal())}</span></div>
+    <div class="col" style="gap:8px"><div class="row between"><span class="eyebrow">¿Por qué concepto?</span><span class="big" style="font-size:24px" id="ffTot">${eurRaw(linTotal())}</span></div>
       ${FF._lin.map((l, k) => `<div class="col" style="gap:8px;background:var(--bg);border-radius:16px;padding:10px">
         <div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${l.tipo === t ? 'on' : ''}" style="height:32px;padding:0 10px;font-size:12px;${l.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="FF._lin[${k}].tipo='${esc(t).replace(/'/g, '')}';FF._touched=true;renderIngresoSheet()">${esc(t)}</button>`).join('')}</div>
         <div class="row" style="gap:8px">
@@ -1131,7 +1140,7 @@ function renderIngresoSheet() {
   </form>`);
 }
 function linTotal() { return FF._lin.reduce((s, l) => s + num(l.importe), 0); }
-function updTotal() { const t = $('#ffTot'); if (t) t.textContent = eur(linTotal()); }
+function updTotal() { const t = $('#ffTot'); if (t) t.textContent = eurRaw(linTotal()); }
 function pickCliente(id, silent) {
   const c = clienteOf(id);
   FF.cliente_id = id;
@@ -1609,13 +1618,51 @@ async function guardarArea(ev) {
 }
 
 /* =================== SHEET =================== */
+// Hoja inferior con botón ‹ Atrás / ✕ Cerrar, gesto de deslizar hacia abajo y gesto «atrás» del iPhone
+const SH = { stack: [], cur: null, key: '' };
+const sheetShown = () => $('#sheet').classList.contains('show');
+function sheetKey(html) { const m = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/); return m ? m[1].replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 60) : html.slice(0, 60); }
 function openSheet(html) {
-  const s = $('#sheet'); s.innerHTML = '<div class="grab"></div>' + html;
+  const s = $('#sheet'), key = sheetKey(html), shown = sheetShown();
+  const at = SH.stack.findIndex(x => x.key === key);
+  if (shown && at >= 0) SH.stack = SH.stack.slice(0, at);           // volvemos a una hoja anterior: se recorta la pila
+  else if (shown && SH.cur && key !== SH.key) SH.stack.push({ html: SH.cur, key: SH.key, scroll: s.scrollTop });
+  if (!shown) { SH.stack = []; try { history.pushState({ sh: 1 }, ''); } catch (e) {} }
+  SH.cur = html; SH.key = key;
+  paintSheet(html, key === SH.key && shown ? s.scrollTop : 0);
   $('#backdrop').classList.add('show'); requestAnimationFrame(() => s.classList.add('show'));
 }
-function closeSheet() { S._fichaId = null; $('#sheet').classList.remove('show'); $('#backdrop').classList.remove('show'); }
-$('#backdrop').addEventListener('click', closeSheet);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+function paintSheet(html, scroll) {
+  const s = $('#sheet');
+  s.innerHTML = `<div class="shbar"><button class="shbtn" aria-label="Atrás" onclick="sheetBack()" style="visibility:${SH.stack.length ? 'visible' : 'hidden'}">${ICON.left}<span>Atrás</span></button><div class="grab"></div><button class="shbtn" aria-label="Cerrar" onclick="closeSheet()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>` + html;
+  s.scrollTop = scroll || 0;
+}
+function sheetBack() {
+  const prev = SH.stack.pop();
+  if (!prev) { closeSheet(); return; }
+  SH.cur = prev.html; SH.key = prev.key; paintSheet(prev.html, prev.scroll);
+  const f = prev.html.match(/sheetVenta\('([^']+)'/); S._fichaId = f ? f[1] : null;
+  if (f) { const keep = SH.stack.slice(); sheetFicha(f[1]); SH.stack = keep; paintSheet(SH.cur, prev.scroll); }  // ficha con datos frescos
+}
+function closeSheet(fromPop) {
+  S._fichaId = null; SH.stack = []; SH.cur = null; SH.key = '';
+  $('#sheet').classList.remove('show'); $('#backdrop').classList.remove('show');
+  if (!fromPop && history.state && history.state.sh) { SH._ignorePop = true; history.back(); }
+}
+window.addEventListener('popstate', () => {
+  if (SH._ignorePop) { SH._ignorePop = false; return; }
+  if (!sheetShown()) return;
+  if (SH.stack.length) { sheetBack(); try { history.pushState({ sh: 1 }, ''); } catch (e) {} }
+  else closeSheet(true);
+});
+$('#backdrop').addEventListener('click', () => closeSheet());
+(() => { // deslizar hacia abajo para cerrar
+  const s = $('#sheet'); let y0 = null, dy = 0;
+  s.addEventListener('touchstart', e => { y0 = s.scrollTop <= 0 ? e.touches[0].clientY : null; dy = 0; }, { passive: true });
+  s.addEventListener('touchmove', e => { if (y0 === null) return; dy = e.touches[0].clientY - y0; if (dy > 0) s.style.transform = `translate(-50%, ${dy}px)`; }, { passive: true });
+  s.addEventListener('touchend', () => { s.style.transform = ''; if (y0 !== null && dy > 110) closeSheet(); y0 = null; dy = 0; });
+})();
+document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (SH.stack.length) sheetBack(); else closeSheet(); } });
 
 /* =================== INIT =================== */
 if (!location.hash) history.replaceState(null, '', '#hoy');
