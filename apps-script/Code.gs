@@ -324,7 +324,8 @@ function widget_() {
   });
   return {
     now: nowStr, today: today, next: next, weekHours: hours, days: days,
-    categorias: ag.categorias, mes: { ingresos: ingresos, pendiente: pendiente }
+    categorias: ag.categorias, mes: { ingresos: ingresos, pendiente: pendiente },
+    ocultar: (f.config.ocultar_importes || '') === 'si'
   };
 }
 

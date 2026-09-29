@@ -44,7 +44,9 @@ async function getData(timeout, maxAge) {
   catch (e) { if (c) { c._offline = true; c._err = e.message; return c } throw e }
 }
 
-const eur = n => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'
+const eurVis = n => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'
+let HIDE = false  // importes ocultos: lo decide la app (ojo) o poner «privado» en Parameter del widget
+const eur = n => HIDE ? '•••• €' : eurVis(n)
 const hrs = s => { const [h, m] = s.slice(11, 16).split(':').map(Number); return h + m / 60 }
 const hstr = h => (Math.round(h * 10) / 10).toString().replace('.', ',')
 
@@ -204,8 +206,8 @@ function inAppHTML(d) {
   <div class="row"><div><div class="e">${DIAS[now.getDay()]} · hoy</div><h1>${now.getDate()} ${MESL[now.getMonth()]}</h1></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">${hstr(work)} h</div><div class="m" style="color:#5C5F66">${d.today.length} bloques</div></div></div>
   <div>${ev}</div>
   <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
-  <div class="card fin"><div class="m">${MESL[now.getMonth()]}</div><div class="big">${eur(d.mes.ingresos || d.mes.facturado || 0)}</div><div class="m">ingresos del mes</div>
-    <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben ${eur(d.mes.pendiente || 0)}</div></div>
+  <div class="card fin" ${d.ocultar ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${d.ocultar ? ' · toca para ver' : ''}</div><div class="big" data-v="${d.ocultar ? eurVis(d.mes.ingresos || 0) : ''}">${d.ocultar ? '•••• €' : eurVis(d.mes.ingresos || d.mes.facturado || 0)}</div><div class="m">ingresos del mes</div>
+    <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben <span data-v="${d.ocultar ? eurVis(d.mes.pendiente || 0) : ''}">${d.ocultar ? '•••• €' : eurVis(d.mes.pendiente || 0)}</span></div></div>
   <a class="btn" href="${APP_URL}">Abrir la app completa</a>
   </body></html>`
 }
@@ -227,6 +229,7 @@ async function run() {
     try {
       if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
       d = await getData(12, 10)
+      HIDE = !!d.ocultar || (args.widgetParameter || '').toLowerCase().includes('privado')
     } catch (e) { err = e }
   }
 
@@ -259,7 +262,7 @@ async function run() {
     if (err) throw err
     const fam = config.widgetFamily || 'large'
     const param = (args.widgetParameter || '').toLowerCase()
-    if (fam === 'small') param === 'finanzas' ? smallFin(d, w) : small(d, w)
+    if (fam === 'small') param.includes('finanzas') ? smallFin(d, w) : small(d, w)
     else if (fam === 'medium') medium(d, w)
     else large(d, w)
     if (d._offline) { w.addSpacer(2); txt(w, 'sin conexión', 8, C.muted) }
