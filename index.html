@@ -152,12 +152,13 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 <div class="backdrop" id="backdrop"></div>
 <section class="sheet" id="sheet" role="dialog" aria-modal="true"></section>
 <div class="toast" id="toast"></div>
+<div id="ask" style="position:fixed;inset:0;z-index:80;background:rgba(23,24,28,.45);display:none;align-items:center;justify-content:center;padding:24px"></div>
 
 <script>
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v16';
+const VERSION = 'v17';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -208,6 +209,22 @@ const ICON = {
   refresh: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/></svg>'
 };
 
+// confirmación propia (los avisos del navegador no siempre salen en la app instalada del iPhone)
+function ask(msg, okText, withInput) {
+  return new Promise(res => {
+    const el = $('#ask');
+    el.innerHTML = `<div class="card stack" style="max-width:360px;width:100%;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,.25)">
+      <b style="font-size:16px;line-height:1.35">${esc(msg)}</b>
+      ${withInput ? '<input class="in" id="askIn" style="background:var(--bg)">' : ''}
+      <div class="grid2"><button class="btn" style="background:var(--bg)" id="askNo">Cancelar</button><button class="btn ${withInput ? 'dark' : 'danger'}" id="askOk">${esc(okText || 'Borrar')}</button></div></div>`;
+    el.style.display = 'flex';
+    const done = v => { el.style.display = 'none'; el.innerHTML = ''; res(v); };
+    $('#askNo').onclick = () => done(withInput ? null : false);
+    $('#askOk').onclick = () => done(withInput ? ($('#askIn').value || '') : true);
+    el.onclick = e => { if (e.target === el) done(withInput ? null : false); };
+    if (withInput) setTimeout(() => $('#askIn').focus(), 50);
+  });
+}
 function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2600); }
 
 /* ---------- state ---------- */
@@ -651,7 +668,7 @@ async function asignarArea(id, start, area) {
   } catch (e) { toast(e.message); }
 }
 async function borrarEvento(id, calId) {
-  if (!confirm('¿Borrar este evento de tu Google Calendar?')) return;
+  if (!await ask('¿Borrar este evento de tu Google Calendar?')) return;
   try { await api('deleteEvent', { data: { id, calId } }); closeSheet(); toast('Evento borrado'); markStale(); loadWeek(mondayOf(S.day), true); }
   catch (e) { toast(e.message); }
 }
@@ -915,7 +932,7 @@ async function toggleIng(id, field) {
   catch (e) { toast(e.message); }
 }
 async function marcarFacturado(id) {
-  const n = prompt('Nº de factura (opcional)', '');
+  const n = await ask('Nº de factura (opcional)', 'Guardar', true);
   if (n === null) return;
   const i = ING().find(x => x.id === id);
   try { await saveIng(Object.assign({}, i, { facturado: 'si', num_factura: n.trim() }), 'Marcado como facturado'); render(); sheetVerIngreso(id); }
@@ -928,7 +945,7 @@ async function duplicarIngreso(id) {
   catch (e) { toast(e.message); }
 }
 async function borrarIngreso(id) {
-  if (!confirm('¿Borrar este ingreso?')) return;
+  if (!await ask('¿Borrar este ingreso?')) return;
   try { await api('deleteIngreso', { data: { id } }); S.fin.ingresos = S.fin.ingresos.filter(x => x.id !== id); LS.set('af_fin_cache', S.fin); closeSheet(); toast('Borrado'); render(); }
   catch (e) { toast(e.message); }
 }
@@ -1187,7 +1204,7 @@ async function guardarGasto(ev) {
   catch (e) { toast(e.message); }
 }
 async function borrarGasto(id) {
-  if (!confirm('¿Borrar este gasto?')) return;
+  if (!await ask('¿Borrar este gasto?')) return;
   try { await api('deleteGasto', { data: { id } }); S.fin.gastos = S.fin.gastos.filter(x => x.id !== id); LS.set('af_fin_cache', S.fin); closeSheet(); render(); }
   catch (e) { toast(e.message); }
 }
@@ -1261,7 +1278,7 @@ async function guardarCliente(ev) {
 }
 async function borrarCliente(id) {
   if (ING().some(i => i.cliente_id === id)) { toast('Tiene ingresos apuntados: no se puede borrar'); return; }
-  if (!confirm('¿Borrar cliente?')) return;
+  if (!await ask('¿Borrar cliente?')) return;
   try { await api('deleteCliente', { data: { id } }); S.fin.clientes = S.fin.clientes.filter(x => x.id !== id); LS.set('af_fin_cache', S.fin); closeSheet(); render(); }
   catch (e) { toast(e.message); }
 }
@@ -1456,7 +1473,7 @@ function sheetFicha(cid) {
 }
 async function borrarBono(ingId, cid) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
-  if (!confirm('¿Borrar este ' + (lineasOf(i).some(l => num(l.bono) === 1) ? 'pago de sesión suelta' : 'bono') + ' de ' + eur(num(i.importe)) + '? También se quita de tus ingresos.')) return;
+  if (!await ask('¿Borrar este ' + (lineasOf(i).some(l => num(l.bono) === 1) ? 'pago de sesión suelta' : 'bono') + ' de ' + eur(num(i.importe)) + '? También se quita de tus ingresos.')) return;
   try { await api('deleteIngreso', { data: { id: ingId } }); S.fin.ingresos = S.fin.ingresos.filter(x => x.id !== ingId); LS.set('af_fin_cache', S.fin); toast('Borrado'); render(); sheetFicha(cid); }
   catch (e) { toast(e.message); }
 }
@@ -1556,7 +1573,7 @@ function renderArea() {
 async function borrarArea(id) {
   const k = S.cats.find(x => x.id === id); if (!k) return;
   const cls = clientsOfArea(id);
-  if (!confirm('¿Borrar el área «' + k.nombre + '»?' + (cls.length ? ' Sus ' + cls.length + ' clientes se quedarán sin área.' : '') + ' Sus eventos pasarán a «Sin área».')) return;
+  if (!await ask('¿Borrar el área «' + k.nombre + '»?' + (cls.length ? ' Sus ' + cls.length + ' clientes se quedarán sin área.' : '') + ' Sus eventos pasarán a «Sin área».')) return;
   try {
     let hidden = false;
     try { await api('deleteCategoria', { data: { id } }); }
