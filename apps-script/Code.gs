@@ -1,6 +1,7 @@
 /**
  * AGENDA + FINANZAS — backend (Google Apps Script)
- * Finanzas = registro de ingresos por cliente (NO emite facturas).
+ * Finanzas = registro de ingresos por cliente, facturas en PDF (Drive) y gastos con foto.
+ * Permisos: Calendar, Sheets, Drive (facturas y tickets) y Gmail (envío al gestor).
  * ------------------------------------------------
  * 1. Crea una Google Sheet nueva → Extensiones → Apps Script → pega este archivo.
  * 2. Ejecuta la función `setup` una vez (acepta permisos: Calendar + Sheets).
@@ -12,9 +13,9 @@
  */
 
 var SHEETS = {
-  Clientes: ['id', 'nombre', 'nif', 'email', 'tarifa', 'color', 'notas'],
-  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas', 'lineas'],
-  Gastos: ['id', 'fecha', 'concepto', 'categoria', 'importe'],
+  Clientes: ['id', 'nombre', 'nif', 'email', 'tarifa', 'color', 'notas', 'direccion', 'tipo_fiscal', 'iva', 'irpf', 'factura'],
+  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas', 'lineas', 'factura_url', 'factura_datos'],
+  Gastos: ['id', 'fecha', 'concepto', 'categoria', 'importe', 'proveedor', 'iva_pct', 'adjunto_url', 'adjunto_nombre'],
   Categorias: ['id', 'nombre', 'fg', 'bg', 'palabras_clave', 'calendario'],
   Config: ['clave', 'valor']
 };
@@ -29,7 +30,10 @@ var DEFAULT_CATS = [
 
 var DEFAULT_CONFIG = [
   ['calendarios', ''],           // vacío = todos tus calendarios; o nombres separados por comas
-  ['calendario_nuevos', '']      // calendario donde se crean eventos nuevos (vacío = principal)
+  ['calendario_nuevos', ''],     // calendario donde se crean eventos nuevos (vacío = principal)
+  ['emisor_nombre', 'Carlos Grande Rodríguez'], ['emisor_nif', ''], ['emisor_direccion', ''], ['emisor_email', ''], ['emisor_iban', ''],
+  ['serie_factura', ''], ['siguiente_numero', '1'], ['iva_defecto', '21'], ['irpf_empresas', '15'], ['nota_factura', ''],
+  ['gestor_nombre', ''], ['gestor_email', '']
 ];
 
 /* ============ SETUP ============ */
@@ -95,6 +99,10 @@ function handle_(p) {
       saveIngreso: function () { return upsert_('Ingresos', data); },
       deleteIngreso: function () { return remove_('Ingresos', data.id); },
       saveGasto: function () { return upsert_('Gastos', data); },
+      crearFactura: function () { return crearFactura_(data); },
+      subirAdjunto: function () { return subirAdjunto_(data); },
+      enviarGestor: function () { return enviarGestor_(data); },
+      previewFactura: function () { return { html: facturaHTML_(data) }; },
       deleteGasto: function () { return remove_('Gastos', data.id); },
       saveConfig: function () { Object.keys(data).forEach(function (k) { setConfig_(k, data[k]); }); return getConfig_(); },
       saveCategoria: function () { return upsert_('Categorias', data); },
@@ -190,7 +198,8 @@ function setConfig_(k, v) {
   for (var i = 1; i < vals.length; i++) {
     if (vals[i][0] === k) { sh.getRange(i + 1, 2).setNumberFormat('@').setValue(String(v)); return; }
   }
-  sh.appendRow([k, String(v)]);
+  var r = sh.getLastRow() + 1;
+  sh.getRange(r, 1, 1, 2).setNumberFormat('@').setValues([[k, String(v)]]);
 }
 
 /* ============ FINANZAS ============ */
@@ -337,3 +346,133 @@ function widget_() {
 }
 
 function num_(v) { var n = parseFloat(String(v || '0').replace(',', '.')); return isNaN(n) ? 0 : n; }
+
+
+/* ============ DRIVE: carpetas ============ */
+function folder_(parts) {
+  var f = null, it = DriveApp.getFoldersByName('Agenda Finanzas');
+  f = it.hasNext() ? it.next() : DriveApp.createFolder('Agenda Finanzas');
+  parts.forEach(function (name) { var i = f.getFoldersByName(name); f = i.hasNext() ? i.next() : f.createFolder(name); });
+  return f;
+}
+function trim_(fecha) { var y = String(fecha).slice(0, 4), m = +String(fecha).slice(5, 7) || 1; return { anio: y, t: 'T' + Math.ceil(m / 3) }; }
+function eur_(n) { return (Math.round(n * 100) / 100).toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'; }
+function esc_(t) { return String(t == null ? '' : t).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+/* ============ FACTURAS ============ */
+// d: { ingId, fecha, cliente:{nombre,nif,direccion,email}, lineas:[{concepto, base}], iva, irpf, numero? }
+function calcFactura_(d) {
+  if (d.totales && d.totales.total !== undefined) return { base: num_(d.totales.base), iva: num_(d.totales.iva), irpf: num_(d.totales.irpf), total: num_(d.totales.total) };
+  var base = 0; (d.lineas || []).forEach(function (l) { base += num_(l.base); });
+  base = Math.round(base * 100) / 100;
+  var iva = Math.round(base * num_(d.iva)) / 100, irpf = Math.round(base * num_(d.irpf)) / 100;
+  return { base: base, iva: iva, irpf: irpf, total: Math.round((base + iva - irpf) * 100) / 100 };
+}
+function facturaHTML_(d) {
+  var c = getConfig_(), t = calcFactura_(d), cl = d.cliente || {};
+  var f = String(d.fecha || '').split('-'); var fecha = f.length === 3 ? f[2] + '/' + f[1] + '/' + f[0] : d.fecha;
+  var rows = (d.lineas || []).map(function (l) { return '<tr><td>' + esc_(l.concepto) + '</td><td class="n">' + eur_(num_(l.base)) + '</td></tr>'; }).join('');
+  return '<html><head><meta charset="utf-8"><style>' +
+    'body{font-family:Helvetica,Arial,sans-serif;color:#17181C;font-size:11pt;margin:36px}' +
+    'h1{font-size:26pt;margin:0 0 4px;letter-spacing:-.5px}.m{color:#5C5F66}.row{width:100%}' +
+    '.box{background:#F4F2ED;border-radius:8px;padding:12px 14px;margin-top:18px}' +
+    'table.l{width:100%;border-collapse:collapse;margin-top:26px}table.l th{text-align:left;font-size:8.5pt;text-transform:uppercase;color:#5C5F66;border-bottom:1.5px solid #17181C;padding:6px 0}' +
+    'table.l td{padding:10px 0;border-bottom:1px solid #E2DED5}.n{text-align:right}' +
+    'table.t{width:46%;margin-left:54%;border-collapse:collapse;margin-top:14px}table.t td{padding:4px 0}table.t .g td{font-size:14pt;font-weight:bold;border-top:1.5px solid #17181C;padding-top:8px}' +
+    '</style></head><body>' +
+    '<table class="row"><tr><td style="vertical-align:top"><h1>Factura</h1><div><b>Nº ' + esc_(d.numero || '') + '</b></div><div class="m">Fecha: ' + esc_(fecha) + '</div></td>' +
+    '<td style="text-align:right;vertical-align:top;line-height:1.5"><b>' + esc_(c.emisor_nombre) + '</b><br>' + (c.emisor_nif ? 'NIF ' + esc_(c.emisor_nif) + '<br>' : '') + esc_(c.emisor_direccion).replace(/\n/g, '<br>') + (c.emisor_email ? '<br>' + esc_(c.emisor_email) : '') + '</td></tr></table>' +
+    '<div class="box"><span class="m" style="font-size:8.5pt;text-transform:uppercase">Cliente</span><br><b>' + esc_(cl.nombre) + '</b>' + (cl.nif ? '<br>NIF/CIF ' + esc_(cl.nif) : '') + (cl.direccion ? '<br>' + esc_(cl.direccion).replace(/\n/g, '<br>') : '') + '</div>' +
+    '<table class="l"><tr><th>Concepto</th><th class="n">Importe</th></tr>' + rows + '</table>' +
+    '<table class="t"><tr><td>Base imponible</td><td class="n">' + eur_(t.base) + '</td></tr>' +
+    '<tr><td>IVA ' + num_(d.iva) + '%</td><td class="n">' + eur_(t.iva) + '</td></tr>' +
+    (num_(d.irpf) ? '<tr><td>Retención IRPF ' + num_(d.irpf) + '%</td><td class="n">− ' + eur_(t.irpf) + '</td></tr>' : '') +
+    '<tr class="g"><td>Total</td><td class="n">' + eur_(t.total) + '</td></tr></table>' +
+    (!num_(d.iva) ? '<p class="m" style="margin-top:22px;font-size:9pt">Operación exenta de IVA.</p>' : '') +
+    (c.emisor_iban ? '<p style="margin-top:26px">Forma de pago: transferencia a <b>' + esc_(c.emisor_iban) + '</b></p>' : '') +
+    (c.nota_factura ? '<p class="m" style="font-size:9pt;margin-top:14px">' + esc_(c.nota_factura) + '</p>' : '') +
+    '</body></html>';
+}
+function crearFactura_(d) {
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var c = getConfig_();
+    if (!d.numero) {
+      var n = parseInt(c.siguiente_numero || '1', 10) || 1;
+      var serie = c.serie_factura || (String(d.fecha || '').slice(0, 4) + '-');
+      d.numero = serie + ('000' + n).slice(-3);
+      setConfig_('siguiente_numero', n + 1);
+    }
+    var html = facturaHTML_(d);
+    var nombre = 'Factura ' + d.numero + ' - ' + ((d.cliente || {}).nombre || '') + '.pdf';
+    var blob = Utilities.newBlob(html, 'text/html', 'f.html').getAs('application/pdf').setName(nombre);
+    var q = trim_(d.fecha);
+    var file = folder_([q.anio, q.t, 'Facturas emitidas']).createFile(blob);
+    var t = calcFactura_(d);
+    var datos = JSON.stringify({ numero: d.numero, fecha: d.fecha, base: t.base, iva_pct: num_(d.iva), iva: t.iva, irpf_pct: num_(d.irpf), irpf: t.irpf, total: t.total, cliente: d.cliente, lineas: d.lineas, fileId: file.getId() });
+    if (d.ingId) {
+      var rows = readRows_('Ingresos');
+      for (var i = 0; i < rows.length; i++) if (rows[i].id === d.ingId) {
+        var o = rows[i]; o.facturado = 'si'; o.num_factura = d.numero; o.factura_url = file.getUrl(); o.factura_datos = datos;
+        upsert_('Ingresos', o); break;
+      }
+    }
+    return { numero: d.numero, url: file.getUrl(), datos: datos };
+  } finally { lock.releaseLock(); }
+}
+
+/* ============ GASTOS: foto / PDF del ticket ============ */
+// d: { nombre, mime, base64, fecha }
+function subirAdjunto_(d) {
+  var bytes = Utilities.base64Decode(String(d.base64).replace(/^data:[^,]+,/, ''));
+  var q = trim_(d.fecha || Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'));
+  var file = folder_([q.anio, q.t, 'Gastos']).createFile(Utilities.newBlob(bytes, d.mime || 'image/jpeg', d.nombre || ('gasto-' + Date.now() + '.jpg')));
+  return { url: file.getUrl(), id: file.getId(), nombre: file.getName() };
+}
+
+/* ============ ENVIAR TRIMESTRE AL GESTOR ============ */
+// d: { anio:'2026', t:'T3', mensaje }
+function enviarGestor_(d) {
+  var c = getConfig_();
+  if (!c.gestor_email) throw new Error('Falta el email del gestor (Ajustes → Datos de facturación)');
+  var anio = String(d.anio), t = String(d.t), mq = +t.slice(1), m0 = (mq - 1) * 3 + 1;
+  var enQ = function (f) { f = String(f || ''); return f.slice(0, 4) === anio && Math.ceil((+f.slice(5, 7)) / 3) === mq; };
+  var clientes = {}; readRows_('Clientes').forEach(function (x) { clientes[x.id] = x; });
+  var ing = readRows_('Ingresos').filter(function (x) { return x.facturado === 'si' && x.factura_datos && enQ(JSON.parse(x.factura_datos).fecha); });
+  var gas = readRows_('Gastos').filter(function (x) { return enQ(x.fecha); });
+  var csv = [['FACTURAS EMITIDAS'], ['numero', 'fecha', 'cliente', 'nif', 'base', 'iva_%', 'iva', 'irpf_%', 'irpf', 'total', 'cobrada', 'pdf']];
+  var tb = 0, ti = 0, tr = 0;
+  ing.forEach(function (x) { var f = JSON.parse(x.factura_datos), cl = f.cliente || clientes[x.cliente_id] || {}; tb += f.base; ti += f.iva; tr += f.irpf;
+    csv.push([f.numero, f.fecha, cl.nombre, cl.nif || '', f.base, f.iva_pct, f.iva, f.irpf_pct, f.irpf, f.total, x.cobrado === 'si' ? 'si' : 'no', x.factura_url]); });
+  csv.push([]); csv.push(['GASTOS']); csv.push(['fecha', 'proveedor', 'concepto', 'categoria', 'total', 'iva_%', 'base', 'iva', 'justificante']);
+  var tg = 0, tgi = 0;
+  gas.forEach(function (x) { var tot = num_(x.importe), p = num_(x.iva_pct), b = p ? tot / (1 + p / 100) : tot; tg += tot; tgi += tot - b;
+    csv.push([x.fecha, x.proveedor || '', x.concepto, x.categoria, tot, p, Math.round(b * 100) / 100, Math.round((tot - b) * 100) / 100, x.adjunto_url || 'SIN JUSTIFICANTE']); });
+  var txt = csv.map(function (r) { return r.map(function (v) { v = String(v == null ? '' : v); if (/^-?\d+(\.\d+)?$/.test(v)) v = v.replace('.', ','); return '"' + v.replace(/"/g, '""') + '"'; }).join(';'); }).join('\n');
+  var qf = folder_([anio, t]);
+  var nombreCsv = 'Resumen ' + anio + ' ' + t + '.csv';
+  var old = qf.getFilesByName(nombreCsv); while (old.hasNext()) old.next().setTrashed(true);
+  var csvFile = qf.createFile(Utilities.newBlob('﻿' + txt, 'text/csv', nombreCsv));
+  // compartir carpeta del trimestre con el gestor
+  var link = qf.getUrl();
+  try { qf.addViewer(c.gestor_email); } catch (e) { qf.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }
+  // adjuntos si caben (< 18 MB)
+  var att = [csvFile.getBlob()], size = csvFile.getSize(), sinJ = 0;
+  var add = function (url) { var m = String(url || '').match(/[-\w]{25,}/); if (!m) return; try { var f = DriveApp.getFileById(m[0]); if (size + f.getSize() < 18 * 1024 * 1024) { att.push(f.getBlob()); size += f.getSize(); } } catch (e) {} };
+  ing.forEach(function (x) { add(x.factura_url); });
+  gas.forEach(function (x) { if (x.adjunto_url) add(x.adjunto_url); else sinJ++; });
+  var body = 'Hola' + (c.gestor_nombre ? ' ' + c.gestor_nombre : '') + ',\n\n' +
+    'Te envío la documentación del ' + t + ' de ' + anio + ' de ' + (c.emisor_nombre || '') + (c.emisor_nif ? ' (NIF ' + c.emisor_nif + ')' : '') + ':\n\n' +
+    '• Facturas emitidas: ' + ing.length + ' · base ' + eur_(tb) + ' · IVA ' + eur_(ti) + ' · IRPF retenido ' + eur_(tr) + '\n' +
+    '• Gastos: ' + gas.length + ' · total ' + eur_(tg) + ' · IVA soportado ' + eur_(tgi) + (sinJ ? ' (' + sinJ + ' sin justificante)' : '') + '\n\n' +
+    'Todo está en esta carpeta de Google Drive (facturas en PDF, fotos de tickets y el resumen en CSV):\n' + link + '\n\n' +
+    (d.mensaje ? d.mensaje + '\n\n' : '') + 'Un saludo,\n' + (c.emisor_nombre || '');
+  MailApp.sendEmail({ to: c.gestor_email, subject: 'Documentación ' + t + ' ' + anio + ' · ' + (c.emisor_nombre || ''), body: body, attachments: att, replyTo: c.emisor_email || undefined });
+  setConfig_('enviado_' + anio + t, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
+  return { facturas: ing.length, gastos: gas.length, adjuntos: att.length, carpeta: link };
+}
+
+// Ejecútalo una vez desde el editor para dar permiso a Drive y Gmail
+function autorizar() {
+  folder_([]); MailApp.getRemainingDailyQuota(); Logger.log('Permisos OK');
+}

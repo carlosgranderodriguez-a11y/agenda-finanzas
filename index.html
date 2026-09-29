@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v21';
+const VERSION = 'v22';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -793,6 +793,8 @@ const clienteOf = id => (S.fin?.clientes || []).find(c => c.id === id) || { nomb
 const ING = () => (S.fin?.ingresos || []);
 const cobrado = i => i.cobrado === 'si';
 const facturado = i => i.facturado === 'si';
+const noFacturar = i => (clienteOf(i.cliente_id).factura || 'si') === 'no';
+const porFacturar = i => !facturado(i) && !noFacturar(i);
 function monthAdd(ym, n) { const d = parseD(ym + '-01'); d.setMonth(d.getMonth() + n); return ymd(d).slice(0, 7); }
 function monthStats(ym) {
   const I = ING().filter(i => (i.fecha || '').slice(0, 7) === ym);
@@ -825,7 +827,7 @@ function viewResumen() {
   const ym = S.month, md = parseD(ym + '-01');
   const st = monthStats(ym), prev = monthStats(monthAdd(ym, -1));
   const diff = prev.ingresos ? Math.round((st.ingresos / prev.ingresos - 1) * 100) : null;
-  const pend = ING().filter(i => !cobrado(i)), sinFac = ING().filter(i => !facturado(i));
+  const pend = ING().filter(i => !cobrado(i)), sinFac = ING().filter(porFacturar);
   const months = []; for (let i = 11; i >= 0; i--) months.push(monthAdd(ym, -i));
   const vals = months.map(m => monthStats(m).ingresos); const max = Math.max(...vals, 1);
   const avg = vals.reduce((a, b) => a + b, 0) / (vals.filter(v => v > 0).length || 1);
@@ -874,6 +876,7 @@ function viewResumen() {
       ${cl.length ? `<div class="catbar">${cl.map(x => `<span style="flex:${x.v};background:${x.c.color || '#6B6E75'}"></span>`).join('')}</div>
       <div class="col" style="gap:8px">${cl.map(x => `<button class="row" style="font-size:13px;gap:8px;border:0;background:none;padding:2px 0;text-align:left" onclick="S.q='${esc(x.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')"><i style="width:9px;height:9px;border-radius:5px;background:${x.c.color || '#6B6E75'};flex:none"></i><span class="grow">${esc(x.c.nombre)}</span><span class="muted" style="font-size:12px">${Math.round(x.v / st.ingresos * 100)}%</span><b style="width:74px;text-align:right">${eur0(x.v)}</b></button>`).join('')}</div>` : `<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>`}
     </div>
+    ${(() => { const q = trimOf(todayStr()), d = datosTrim(q); return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="GQ=null;sheetGestor()"><span class="col" style="gap:2px"><b style="font-size:14px">Gestor · ${q.t} ${q.anio}</b><span class="muted" style="font-size:12px">${d.fac.length} facturas · ${d.gas.length} gastos${d.sinFoto.length ? ' · <b style="color:var(--warn)">' + d.sinFoto.length + ' sin foto</b>' : ''}${cfgF('enviado_' + q.anio + q.t, '') ? ' · enviado' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
     <div class="row"><button class="btn grow" onclick="go('clientes')">Clientes</button><button class="btn grow" onclick="exportCSV()">Exportar CSV</button></div>
   </div>`;
 }
@@ -882,7 +885,7 @@ function viewResumen() {
 function viewIngresos() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const all = [...ING()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-  const filt = { todos: () => true, pendientes: i => !cobrado(i), sinfactura: i => !facturado(i), cobrados: cobrado }[S.filter] || (() => true);
+  const filt = { todos: () => true, pendientes: i => !cobrado(i), sinfactura: porFacturar, cobrados: cobrado }[S.filter] || (() => true);
   const q = (S.q || '').toLowerCase();
   const tf = S.tipoF || '';
   const list = all.filter(filt).filter(i => !tf || lineasOf(i).some(l => l.tipo === tf)).filter(i => !q || (clienteOf(i.cliente_id).nombre + ' ' + i.concepto + ' ' + (i.num_factura || '') + ' ' + lineasOf(i).map(l => l.tipo + ' ' + l.detalle).join(' ')).toLowerCase().includes(q));
@@ -890,7 +893,7 @@ function viewIngresos() {
   const tchip = (k, t) => `<button class="chip ${tf === k ? 'on' : ''}" style="${tf === k ? '' : k ? `background:${tipoColor(k)}1A;color:${tipoColor(k)}` : ''}" onclick="S.tipoF='${esc(k).replace(/'/g, '')}';render()">${esc(t)}</button>`;
   const chip = (k, t) => `<button class="chip ${S.filter === k ? 'on' : ''}" onclick="S.filter='${k}';render()">${t}</button>`;
   const shown = list.slice(0, S.showAll ? 9999 : 50);
-  const pend = all.filter(i => !cobrado(i)), sinFac = all.filter(i => !facturado(i));
+  const pend = all.filter(i => !cobrado(i)), sinFac = all.filter(porFacturar);
   return `<div class="stack">
     ${demoBanner()}
     <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px" class="row">Ingresos ${eyeBtn()}</h1><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumP(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
@@ -906,7 +909,7 @@ function viewIngresos() {
       ${shown.length ? shown.map(i => { const c = clienteOf(i.cliente_id); const fd = parseD(i.fecha);
         return `<button class="li" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>
         <span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</b><span class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${fd.getDate()} ${MES_C[fd.getMonth()]} · ${esc(i.concepto || lineasOf(i).map(l => tipoName(l.tipo)).join(' + '))}</span><span class="row" style="gap:3px;margin-top:3px">${lineasOf(i).map(l => `<i title="${esc(tipoName(l.tipo))}" style="height:4px;border-radius:2px;flex:${Math.max(l.importe, 1)};max-width:90px;background:${tipoColor(l.tipo)}"></i>`).join('')}</span></span>
-        <span class="col" style="align-items:flex-end;gap:3px;flex:none"><b style="font-size:14px">${eur(partOf(i, tf))}</b>${tf && partOf(i, tf) !== num(i.importe) ? `<span class="muted" style="font-size:10px">de ${eur(num(i.importe))}</span>` : ''}<span class="row" style="gap:4px"><span class="badge ${cobrado(i) ? 'b-ok' : 'b-warn'}">${cobrado(i) ? 'Cobrado' : 'Debe'}</span>${facturado(i) ? '' : '<span class="badge" style="background:#DCE1F6;color:var(--accent)">Sin fact.</span>'}</span></span></button>`; }).join('') : `<div class="empty">Nada por aquí. Pulsa + para apuntar un ingreso.</div>`}
+        <span class="col" style="align-items:flex-end;gap:3px;flex:none"><b style="font-size:14px">${eur(partOf(i, tf))}</b>${tf && partOf(i, tf) !== num(i.importe) ? `<span class="muted" style="font-size:10px">de ${eur(num(i.importe))}</span>` : ''}<span class="row" style="gap:4px"><span class="badge ${cobrado(i) ? 'b-ok' : 'b-warn'}">${cobrado(i) ? 'Cobrado' : 'Debe'}</span>${facturado(i) ? (i.num_factura ? '<span class="badge b-grey">' + esc(i.num_factura) + '</span>' : '') : noFacturar(i) ? '' : '<span class="badge" style="background:#DCE1F6;color:var(--accent)">Sin fact.</span>'}</span></span></button>`; }).join('') : `<div class="empty">Nada por aquí. Pulsa + para apuntar un ingreso.</div>`}
     </div>
     ${list.length > shown.length ? `<button class="btn" onclick="S.showAll=true;render()">Ver todos (${list.length})</button>` : ''}
   </div>`;
@@ -923,8 +926,9 @@ function sheetVerIngreso(id) {
     ${i.notas ? `<span class="muted" style="font-size:13px;white-space:pre-line">${esc(i.notas)}</span>` : ''}
     <div class="grid2">
       ${cobrado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','cobrado')">Marcar como no cobrado</button>` : `<button class="btn primary" onclick="toggleIng('${i.id}','cobrado')">Ya me ha pagado</button>`}
-      ${facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="marcarFacturado('${i.id}')">Ya lo he facturado</button>`}
+      ${noFacturar(i) && !facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="sheetFactura('${i.id}')">Facturar igualmente</button>` : i.factura_url ? `<a class="btn dark" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver factura ${esc(i.num_factura || '')}</a>` : facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="sheetFactura('${i.id}')">Crear factura</button>`}
     </div>
+    ${!facturado(i) && !noFacturar(i) ? `<button class="btn" style="background:var(--bg);height:42px;font-size:13px" onclick="marcarFacturado('${i.id}')">Ya la hice por otro lado (solo marcar)</button>` : ''}
     <div class="grid2">
       <button class="btn" style="background:var(--bg)" onclick="sheetIngreso('${i.id}')">Editar</button>
       <button class="btn" style="background:var(--bg)" onclick="duplicarIngreso('${i.id}')">Repetir este mes</button>
@@ -1195,32 +1199,76 @@ function viewGastos() {
     </div>
     <div class="hero" style="gap:6px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Total gastado</span><span class="big" style="font-size:36px">${eur(tot)}</span>
       <div class="legend" style="color:#C9CBD1">${Object.keys(byCat).map(k => `<span>${esc(k)} <b style="color:#fff">${eur0(byCat[k])}</b></span>`).join('')}</div></div>
-    <button class="btn dark" onclick="sheetGasto()">+ Añadir gasto</button>
-    <div class="card" style="padding:4px 14px">${G.length ? G.map(g => `<button class="li" onclick="sheetGasto('${g.id}')"><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(g.concepto)}</b><span class="muted" style="font-size:12px">${parseD(g.fecha).getDate()} ${MES_C[parseD(g.fecha).getMonth()]} · ${esc(g.categoria || 'Otros')}</span></span><b>${eur(num(g.importe))}</b></button>`).join('') : `<div class="empty">Sin gastos este mes.</div>`}</div>
+    <div class="grid2"><button class="btn dark" onclick="sheetGasto()">+ Añadir gasto</button><button class="btn primary" onclick="sheetGasto(null, true)">Foto de ticket</button></div>
+    <div class="card" style="padding:4px 14px">${G.length ? G.map(g => `<button class="li" onclick="sheetGasto('${g.id}')"><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(g.concepto)}</b><span class="muted" style="font-size:12px">${parseD(g.fecha).getDate()} ${MES_C[parseD(g.fecha).getMonth()]} · ${esc(g.categoria || 'Otros')}${g.proveedor ? ' · ' + esc(g.proveedor) : ''}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(num(g.importe))}</b>${g.adjunto_url ? '<span class="badge b-ok">Justificante</span>' : '<span class="badge b-warn">Sin foto</span>'}</span></button>`).join('') : `<div class="empty">Sin gastos este mes.</div>`}</div>
   </div>`;
 }
 let GG = null;
-function sheetGasto(id) {
+function sheetGasto(id, abrirCamara) {
   const src = id ? S.fin.gastos.find(x => x.id === id) : null;
-  GG = src ? Object.assign({}, src) : { fecha: S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01', concepto: '', categoria: 'Material', importe: '' };
+  GG = src ? Object.assign({}, src) : { fecha: S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01', concepto: '', categoria: 'Material', importe: '', proveedor: '', iva_pct: '21' };
+  GG._file = null;
+  renderGasto();
+  if (abrirCamara) setTimeout(() => { const f = $('#gFile'); if (f) f.click(); }, 150);
+}
+function renderGasto() {
+  const ivaOpts = [21, 10, 4, 0];
   openSheet(`<form class="stack" onsubmit="guardarGasto(event)">
     <h1 style="font-size:24px">${GG.id ? 'Editar gasto' : 'Nuevo gasto'}</h1>
+    <div class="col" style="gap:8px"><span class="eyebrow">Ticket o factura</span>
+      ${GG._file ? `<div class="row" style="gap:10px;background:var(--bg);border-radius:14px;padding:8px">${GG._file.mime.startsWith('image') ? `<img src="${GG._file.b64}" alt="Ticket" style="width:64px;height:64px;object-fit:cover;border-radius:10px">` : '<span class="av" style="background:var(--card)">PDF</span>'}<span class="grow" style="font-size:13px">${esc(GG._file.nombre)}<br><span class="muted">${Math.round(GG._file.size / 1024)} KB · se subirá al guardar</span></span><button type="button" class="chip" style="background:var(--card)" onclick="GG._file=null;renderGasto()">Quitar</button></div>`
+        : GG.adjunto_url ? `<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);background:var(--bg)" href="${esc(GG.adjunto_url)}" target="_blank" rel="noopener">Ver justificante guardado</a>` : ''}
+      <label class="btn primary" style="display:flex;align-items:center;justify-content:center;cursor:pointer">${GG._file || GG.adjunto_url ? 'Cambiar foto / archivo' : 'Hacer foto o elegir archivo'}<input id="gFile" type="file" accept="image/*,application/pdf" style="display:none" onchange="leerAdjunto(this)"></label>
+    </div>
     <label class="f">Concepto<input class="in" required value="${esc(GG.concepto)}" oninput="GG.concepto=this.value" placeholder="Ej. Bandas elásticas"></label>
+    <label class="f">Proveedor / tienda<input class="in" value="${esc(GG.proveedor || '')}" oninput="GG.proveedor=this.value" placeholder="Ej. Decathlon"></label>
     <div class="grid2">
-      <label class="f">Importe (€)<input class="in" inputmode="decimal" required value="${esc(GG.importe)}" oninput="GG.importe=this.value"></label>
+      <label class="f">Total pagado (€)<input class="in" inputmode="decimal" required value="${esc(GG.importe)}" oninput="GG.importe=this.value"></label>
       <label class="f">Fecha<input class="in" type="date" required value="${esc(GG.fecha)}" onchange="GG.fecha=this.value"></label>
     </div>
+    <div class="col" style="gap:6px"><span class="eyebrow">IVA del ticket</span><div class="opt">${ivaOpts.map(v => `<button type="button" class="${num(GG.iva_pct) === v && String(GG.iva_pct) !== '' ? 'on' : ''}" onclick="GG.iva_pct='${v}';renderGasto()">${v ? v + '%' : 'Sin IVA'}</button>`).join('')}</div></div>
     <label class="f">Categoría<select class="in" onchange="GG.categoria=this.value">${GASTO_CATS.map(c => `<option ${GG.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
-    <button class="btn dark" type="submit">Guardar</button>
+    <button class="btn dark" type="submit" id="gSave">Guardar</button>
     ${GG.id ? `<button class="btn danger" type="button" onclick="borrarGasto('${GG.id}')">Borrar</button>` : ''}
   </form>`);
+}
+// comprime la foto (máx. 1600 px) para que suba rápido
+function leerAdjunto(inp) {
+  const f = inp.files && inp.files[0]; if (!f) return;
+  const done = (b64, mime, size) => { GG._file = { b64, mime, size, nombre: (GG.fecha || todayStr()) + ' ' + (GG.proveedor || GG.concepto || 'gasto').replace(/[\\/:*?"<>|]/g, '') + (mime === 'application/pdf' ? '.pdf' : '.jpg') }; renderGasto(); };
+  if (f.type === 'application/pdf') {
+    if (f.size > 8 * 1024 * 1024) { toast('El PDF es demasiado grande (máx. 8 MB)'); return; }
+    const r = new FileReader(); r.onload = () => done(r.result, 'application/pdf', f.size); r.readAsDataURL(f); return;
+  }
+  const url = URL.createObjectURL(f), img = new Image();
+  img.onload = () => {
+    const k = Math.min(1, 1600 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const b64 = c.toDataURL('image/jpeg', 0.72); URL.revokeObjectURL(url);
+    done(b64, 'image/jpeg', Math.round(b64.length * 0.75));
+  };
+  img.onerror = () => toast('No he podido leer la foto');
+  img.src = url;
 }
 async function guardarGasto(ev) {
   ev.preventDefault();
   if (!num(GG.importe)) { toast('Pon el importe'); return; }
-  GG.importe = String(num(GG.importe));
-  try { const g = await api('saveGasto', { data: GG }); const i = S.fin.gastos.findIndex(x => x.id === g.id); if (i >= 0) S.fin.gastos[i] = g; else S.fin.gastos.push(g); LS.set('af_fin_cache', S.fin); closeSheet(); toast('Gasto guardado'); render(); }
-  catch (e) { toast(e.message); }
+  const btn = $('#gSave'); btn.disabled = true;
+  try {
+    const o = Object.assign({}, GG, { importe: String(num(GG.importe)) }); delete o._file;
+    if (GG._file) {
+      btn.innerHTML = '<span class="spin"></span> Subiendo justificante…';
+      if (isDemo()) { o.adjunto_url = '#demo'; o.adjunto_nombre = GG._file.nombre; }
+      else {
+        try { const r = await apiRaw('subirAdjunto', { data: { nombre: GG._file.nombre, mime: GG._file.mime, base64: GG._file.b64, fecha: o.fecha } }); o.adjunto_url = r.url; o.adjunto_nombre = r.nombre; }
+        catch (e) { if (!e.net) throw e; toast('Sin conexión: el gasto se guarda, sube la foto luego desde el gasto'); }
+      }
+    }
+    const g = await api('saveGasto', { data: o });
+    const i = S.fin.gastos.findIndex(x => x.id === g.id); if (i >= 0) S.fin.gastos[i] = g; else S.fin.gastos.push(g);
+    LS.set('af_fin_cache', S.fin); closeSheet(); toast('Gasto guardado'); render();
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar'; }
 }
 async function borrarGasto(id) {
   if (!await ask('¿Borrar este gasto?')) return;
@@ -1272,6 +1320,16 @@ function renderClienteSheet() {
       <button type="button" class="chip ${!CC._tipo ? 'on' : ''}" style="${!CC._tipo ? '' : 'background:var(--bg)'}" onclick="CC._tipo='';renderClienteSheet()">Ninguno</button>
       ${tiposList().map(t => `<button type="button" class="chip ${CC._tipo === t ? 'on' : ''}" style="${CC._tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="CC._tipo='${esc(t).replace(/'/g, '')}';renderClienteSheet()">${esc(t)}</button>`).join('')}</div></div>
     <div class="grid2"><label class="f">NIF / CIF<input class="in" value="${esc(CC.nif)}" oninput="CC.nif=this.value" placeholder="Para cuando factures"></label><label class="f">Email<input class="in" type="email" value="${esc(CC.email)}" oninput="CC.email=this.value"></label></div>
+    <label class="f">Dirección (para la factura)<textarea class="in" oninput="CC.direccion=this.value" placeholder="Calle, CP, ciudad">${esc(CC.direccion || '')}</textarea></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Le haces factura?</span><div class="opt">
+      <button type="button" class="${(CC.factura || 'si') === 'si' ? 'on' : ''}" onclick="CC.factura='si';renderClienteSheet()">Sí, cuando yo lo decida</button>
+      <button type="button" class="${CC.factura === 'no' ? 'on' : ''}" onclick="CC.factura='no';renderClienteSheet()">No</button></div>
+      <span class="muted" style="font-size:12px">${CC.factura === 'no' ? 'Sus ingresos no aparecerán como «sin facturar». Si algún día lo necesitas, puedes facturar igualmente desde el ingreso.' : 'Nunca se crea una factura sola: tú pulsas «Crear factura» en el ingreso cuando toque.'}</span></div>
+    ${CC.factura !== 'no' ? `<div class="col" style="gap:6px"><span class="eyebrow">IVA en sus facturas</span><div class="opt">${[['21', '21%'], ['10', '10%'], ['0', 'Sin IVA']].map(([v, l]) => `<button type="button" class="${String(CC.iva === undefined || CC.iva === '' ? '21' : num(CC.iva)) === v ? 'on' : ''}" onclick="CC.iva='${v}';renderClienteSheet()">${l}</button>`).join('')}</div></div>` : ''}
+    <div class="col" style="gap:6px;${CC.factura === 'no' ? 'display:none' : ''}"><span class="eyebrow">Cómo le facturas</span><div class="opt">
+      <button type="button" class="${(CC.tipo_fiscal || 'particular') === 'particular' ? 'on' : ''}" onclick="CC.tipo_fiscal='particular';renderClienteSheet()">Particular · IVA incluido</button>
+      <button type="button" class="${CC.tipo_fiscal === 'empresa' ? 'on' : ''}" onclick="CC.tipo_fiscal='empresa';renderClienteSheet()">Empresa/club · + IVA − IRPF</button></div>
+      <span class="muted" style="font-size:12px">${CC.tipo_fiscal === 'empresa' ? 'Lo que apuntas es la base: la factura suma IVA y resta la retención de IRPF.' : 'Lo que apuntas es lo que te paga: la factura saca la base y el IVA de dentro.'}</span></div>
     <label class="f">Notas<textarea class="in" oninput="CC.notas=this.value" placeholder="Ej. paga a 30 días, factura trimestral…">${esc(CC.notas)}</textarea></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${CLIENT_COLORS.map(c => `<button type="button" aria-label="Color ${c}" onclick="CC.color='${c}';renderClienteSheet()" style="width:36px;height:36px;border-radius:12px;border:${CC.color === c ? '3px solid var(--ink)' : '0'};background:${c}"></button>`).join('')}</div></div>
     <button class="btn dark" type="submit">Guardar</button>
@@ -1338,6 +1396,12 @@ function viewAjustes() {
       <button class="btn dark" onclick="guardarEmisor()">Guardar</button>
     </div>` : ''}
     <div class="card stack" style="gap:8px">
+      <b>Datos de facturación</b>
+      <span class="muted" style="font-size:12px">Salen en tus facturas. El gestor recibe el trimestre desde Resumen → Gestor.</span>
+      ${[['emisor_nombre', 'Nombre y apellidos'], ['emisor_nif', 'NIF'], ['emisor_direccion', 'Dirección', 1], ['emisor_email', 'Email'], ['emisor_iban', 'IBAN (para cobrar)'], ['serie_factura', 'Serie (ej. 2026-)'], ['siguiente_numero', 'Siguiente nº de factura'], ['iva_defecto', 'IVA por defecto %'], ['irpf_empresas', 'IRPF empresas %'], ['nota_factura', 'Nota al pie (opcional)', 1], ['gestor_nombre', 'Nombre del gestor'], ['gestor_email', 'Email del gestor']].map(([k, l, ta]) => `<label class="f">${l}${ta ? `<textarea class="in" style="background:var(--bg)" data-f="${k}">${esc(cfgF(k, ''))}</textarea>` : `<input class="in" style="background:var(--bg)" data-f="${k}" value="${esc(cfgF(k, k === 'iva_defecto' ? '21' : k === 'irpf_empresas' ? '15' : k === 'siguiente_numero' ? '1' : ''))}">`}</label>`).join('')}
+      <button class="btn dark" onclick="guardarFacturacion()">Guardar datos de facturación</button>
+    </div>
+    <div class="card stack" style="gap:8px">
       <b>Privacidad</b>
       <label class="row" style="gap:10px;font-size:14px"><input type="checkbox" ${LS.get('af_hide_open', true) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--dark)" onchange="LS.set('af_hide_open', this.checked); if (this.checked) { S.hide = true; render(); }"> Ocultar importes siempre al abrir la app (como las apps de bancos). Se ven pulsando el ojo 👁.</label>
     </div>
@@ -1374,6 +1438,12 @@ async function guardarConexion() {
   try { await api('ping'); LS.set('af_cfg', S.cfg); resetData(); toast('Conectado ✓'); go('hoy'); }
   catch (e) { S.cfg.demo = true; toast('No conecta: ' + e.message); }
 }
+async function guardarFacturacion() {
+  if (!S.fin) { await loadFin(true); if (!S.fin) { toast('Sin conexión con tus datos'); return; } }
+  const data = {}; document.querySelectorAll('[data-f]').forEach(i => data[i.dataset.f] = i.value.trim());
+  try { await api('saveConfig', { data }); S.fin.config = Object.assign(S.fin.config || {}, data); LS.set('af_fin_cache', S.fin); toast('Datos de facturación guardados'); }
+  catch (e) { toast(e.message); }
+}
 async function guardarTipos() {
   const v = $('#tiposIn').value.split(',').map(x => x.trim()).filter(Boolean).join(', ');
   if (!v) { toast('Pon al menos un concepto'); return; }
@@ -1401,6 +1471,130 @@ async function copiarWidget() {
     const code = await p;
     openSheet(`<div class="stack"><h1 style="font-size:22px">Código del widget</h1><span class="muted" style="font-size:13px">Mantén pulsado dentro del recuadro → Seleccionar todo → Copiar, y pégalo en Scriptable.</span><textarea class="in" readonly style="min-height:320px;font-family:ui-monospace,monospace;font-size:11px;background:var(--bg)">${esc(code)}</textarea></div>`);
   }
+}
+
+/* =================== FACTURAS =================== */
+let FA = null;
+function cfgF(k, d) { const v = S.fin && S.fin.config && S.fin.config[k]; return v == null || v === '' ? d : v; }
+function sheetFactura(ingId) {
+  const i = ING().find(x => x.id === ingId); if (!i) return;
+  const c = clienteOf(i.cliente_id), emp = c.tipo_fiscal === 'empresa';
+  const L = lineasOf(i);
+  FA = { ingId, cid: c.id, fecha: todayStr(), nif: c.nif || '', direccion: c.direccion || '', incluido: !emp,
+    iva: String(c.iva !== undefined && c.iva !== '' ? num(c.iva) : num(cfgF('iva_defecto', 21))), irpf: String(emp ? num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)) : 0),
+    lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
+  renderFactura();
+}
+function faCalc() {
+  const iva = num(FA.iva), irpf = num(FA.irpf), k = FA.incluido ? 1 + iva / 100 - irpf / 100 : 1;
+  const lineas = FA.lineas.map(l => ({ concepto: l.concepto, base: Math.round(num(l.importe) / k * 100) / 100 }));
+  const base = Math.round(lineas.reduce((s, l) => s + l.base, 0) * 100) / 100, vr = Math.round(base * irpf) / 100;
+  let vi = Math.round(base * iva) / 100;
+  if (FA.incluido) { const T = Math.round(FA.lineas.reduce((s, l) => s + num(l.importe), 0) * 100) / 100; vi = Math.round((T - base + vr) * 100) / 100; }  // cuadra al céntimo con lo cobrado
+  return { lineas, base, iva: vi, irpf: vr, total: Math.round((base + vi - vr) * 100) / 100 };
+}
+function renderFactura() {
+  const c = clienteOf(FA.cid), t = faCalc();
+  const falta = [!cfgF('emisor_nif', '') && 'tu NIF', !cfgF('emisor_direccion', '') && 'tu dirección', !FA.nif && 'el NIF del cliente'].filter(Boolean);
+  openSheet(`<form class="stack" onsubmit="generarFactura(event)">
+    <h1 style="font-size:24px">Factura · ${esc(c.nombre)}</h1>
+    ${falta.length ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">Falta ${falta.join(', ')}.${!cfgF('emisor_nif', '') ? ' Tus datos se ponen en Ajustes → Datos de facturación.' : ''}</div>` : ''}
+    <div class="grid2"><label class="f">NIF/CIF cliente<input class="in" value="${esc(FA.nif)}" oninput="FA.nif=this.value"></label><label class="f">Fecha factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label></div>
+    <label class="f">Dirección cliente<textarea class="in" oninput="FA.direccion=this.value" placeholder="Opcional para particulares">${esc(FA.direccion)}</textarea></label>
+    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FA.lineas.map((l, k) => `<div class="row" style="gap:8px"><input class="in" aria-label="Concepto" value="${esc(l.concepto)}" oninput="FA.lineas[${k}].concepto=this.value" style="background:var(--bg)"><input class="in" aria-label="Importe" inputmode="decimal" value="${esc(l.importe)}" oninput="FA.lineas[${k}].importe=this.value;updFa()" style="width:100px;flex:none;background:var(--bg);text-align:right;font-weight:700"></div>`).join('')}</div>
+    <div class="opt"><button type="button" class="${FA.incluido ? 'on' : ''}" onclick="FA.incluido=true;renderFactura()">Importe con IVA incluido</button><button type="button" class="${!FA.incluido ? 'on' : ''}" onclick="FA.incluido=false;renderFactura()">Importe = base</button></div>
+    <div class="grid2">
+      <div class="col" style="gap:6px"><span class="eyebrow">IVA</span><div class="opt">${[21, 10, 0].map(v => `<button type="button" class="${num(FA.iva) === v ? 'on' : ''}" onclick="FA.iva='${v}';renderFactura()">${v ? v + '%' : 'Exento'}</button>`).join('')}</div></div>
+      <div class="col" style="gap:6px"><span class="eyebrow">IRPF</span><div class="opt">${[15, 7, 0].map(v => `<button type="button" class="${num(FA.irpf) === v ? 'on' : ''}" onclick="FA.irpf='${v}';renderFactura()">${v}%</button>`).join('')}</div></div>
+    </div>
+    <div class="totals" id="faTot">${faTotHTML(t)}</div>
+    <div class="grid2"><button type="button" class="btn" style="background:var(--bg)" onclick="previewFactura()">Vista previa</button><button class="btn primary" type="submit" id="faBtn">Generar factura</button></div>
+    <span class="muted" style="font-size:12px">Se numera sola (siguiente: ${esc(cfgF('serie_factura', FA.fecha.slice(0, 4) + '-'))}${String(cfgF('siguiente_numero', '1')).padStart(3, '0')}), se guarda en PDF en tu Google Drive (carpeta del trimestre) y el ingreso queda como facturado.</span>
+  </form>`);
+}
+function faTotHTML(t) { return `<div class="r"><span>Base imponible</span><span>${eurRaw(t.base, true)}</span></div><div class="r"><span>+ IVA ${num(FA.iva)}%</span><span>${eurRaw(t.iva, true)}</span></div>${num(FA.irpf) ? `<div class="r"><span>− IRPF ${num(FA.irpf)}%</span><span>− ${eurRaw(t.irpf, true)}</span></div>` : ''}<div style="border-top:1px solid #3A3C42;margin:4px 0"></div><div class="row between"><b>Total factura</b><span class="big" style="font-size:28px">${eurRaw(t.total, true)}</span></div>`; }
+function updFa() { const e = $('#faTot'); if (e) e.innerHTML = faTotHTML(faCalc()); }
+function faPayload() {
+  const c = clienteOf(FA.cid), t = faCalc();
+  return { ingId: FA.ingId, fecha: FA.fecha, cliente: { nombre: c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: c.email || '' }, lineas: t.lineas, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
+}
+async function previewFactura() {
+  try {
+    const d = faPayload(); d.numero = '(borrador)';
+    const r = isDemo() ? { html: '<p style="font-family:sans-serif;padding:20px">En modo demo no hay vista previa. Conecta tu Google Sheet.</p>' } : await api('previewFactura', { data: d });
+    openSheet(`<div class="stack"><h1 style="font-size:20px">Vista previa</h1><iframe title="Factura" srcdoc="${esc(r.html)}" style="width:100%;height:65vh;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe></div>`);
+  } catch (e) { toast(e.message); }
+}
+async function generarFactura(ev) {
+  ev.preventDefault();
+  if (!FA.lineas.some(l => num(l.importe))) { toast('Pon algún importe'); return; }
+  const btn = $('#faBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Generando…';
+  try {
+    const d = faPayload(), c = clienteOf(FA.cid);
+    // guarda NIF/dirección en la ficha del cliente para la próxima vez
+    if ((c.nif || '') !== d.cliente.nif || (c.direccion || '') !== d.cliente.direccion) {
+      const nc = Object.assign({}, c, { nif: d.cliente.nif, direccion: d.cliente.direccion }); Object.keys(nc).forEach(k => { if (k[0] === '_') delete nc[k]; });
+      const sv = await api('saveCliente', { data: nc }); const k = S.fin.clientes.findIndex(x => x.id === sv.id); if (k >= 0) S.fin.clientes[k] = sv;
+    }
+    let r;
+    if (isDemo()) { const n = +cfgF('siguiente_numero', 1) || 1; r = { numero: (cfgF('serie_factura', d.fecha.slice(0, 4) + '-')) + String(n).padStart(3, '0'), url: '', datos: JSON.stringify(Object.assign({ numero: '', base: faCalc().base, total: faCalc().total }, d)) }; S.fin.config.siguiente_numero = String(n + 1); }
+    else r = await apiRaw('crearFactura', { data: d });
+    const i = ING().find(x => x.id === FA.ingId);
+    Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos });
+    if (isDemo()) await api('saveIngreso', { data: i });
+    else { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
+    LS.set('af_fin_cache', S.fin); render();
+    openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} creada ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>
+      ${r.url ? `<a class="btn primary" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(r.url)}" target="_blank" rel="noopener">Abrir PDF</a>` : '<span class="muted" style="font-size:13px">(En modo demo no se genera el PDF)</span>'}
+      ${r.url && c.email ? `<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);background:var(--bg)" href="mailto:${esc(c.email)}?subject=${encodeURIComponent('Factura ' + r.numero)}&body=${encodeURIComponent('Hola,\n\nTe envío la factura ' + r.numero + ':\n' + r.url + '\n\nUn saludo,\n' + cfgF('emisor_nombre', ''))}">Enviar enlace al cliente</a>` : ''}
+      <span class="muted" style="font-size:12px">Guardada en Drive → Agenda Finanzas → ${esc(d.fecha.slice(0, 4))} → T${Math.ceil(+d.fecha.slice(5, 7) / 3)} → Facturas emitidas. Le llegará a tu gestor cuando envíes el trimestre.</span></div>`);
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Generar factura'; }
+}
+
+/* =================== GESTOR =================== */
+const trimOf = f => ({ anio: String(f).slice(0, 4), t: 'T' + Math.ceil((+String(f).slice(5, 7) || 1) / 3) });
+function enTrim(f, q) { return !!f && trimOf(f).anio === q.anio && trimOf(f).t === q.t; }
+function datosTrim(q) {
+  const fac = ING().filter(i => facturado(i) && i.factura_datos && (() => { try { return enTrim(JSON.parse(i.factura_datos).fecha, q); } catch (e) { return false; } })());
+  const sinFac = ING().filter(i => porFacturar(i) && enTrim(i.fecha, q));
+  const gas = (S.fin.gastos || []).filter(g => enTrim(g.fecha, q));
+  const tot = fac.reduce((s, i) => { try { const d = JSON.parse(i.factura_datos); s.base += num(d.base); s.iva += num(d.iva); s.irpf += num(d.irpf); } catch (e) {} return s; }, { base: 0, iva: 0, irpf: 0 });
+  return { fac, sinFac, gas, sinFoto: gas.filter(g => !g.adjunto_url), tot, gtot: gas.reduce((s, g) => s + num(g.importe), 0) };
+}
+let GQ = null;
+function sheetGestor() {
+  const hoy = todayStr(), cur = trimOf(hoy);
+  const prev = cur.t === 'T1' ? { anio: String(+cur.anio - 1), t: 'T4' } : { anio: cur.anio, t: 'T' + (+cur.t.slice(1) - 1) };
+  GQ = GQ || (+hoy.slice(5, 7) % 3 === 1 && +hoy.slice(8, 10) <= 20 ? prev : cur);
+  renderGestor(prev, cur);
+}
+function renderGestor(prev, cur) {
+  const q = GQ, d = datosTrim(q), env = cfgF('enviado_' + q.anio + q.t, '');
+  const opt = [prev, cur].map(x => `<button type="button" class="${x.anio === q.anio && x.t === q.t ? 'on' : ''}" onclick="GQ={anio:'${x.anio}',t:'${x.t}'};sheetGestor()">${x.t} ${x.anio}</button>`).join('');
+  openSheet(`<div class="stack">
+    <h1 style="font-size:24px">Enviar al gestor</h1>
+    <div class="opt">${opt}</div>
+    ${env ? `<span class="badge b-ok" style="align-self:flex-start">Ya enviado el ${esc(env)}</span>` : ''}
+    <div class="card stack" style="background:var(--bg);gap:8px">
+      <div class="row between"><b>Facturas emitidas</b><b>${d.fac.length}</b></div>
+      <span class="muted" style="font-size:13px">Base ${eur(d.tot.base, true)} · IVA ${eur(d.tot.iva, true)} · IRPF ${eur(d.tot.irpf, true)}</span>
+      <div class="row between"><b>Gastos</b><b>${d.gas.length} · ${eur(d.gtot, true)}</b></div>
+      ${d.sinFoto.length ? `<span style="font-size:13px;color:var(--warn);font-weight:600">${d.sinFoto.length} sin foto del ticket</span>` : ''}
+      ${d.sinFac.length ? `<button class="row between" style="border:0;background:var(--warnbg);color:var(--warn);border-radius:10px;padding:8px 10px;font-weight:600;font-size:13px;text-align:left" onclick="S.filter='sinfactura';S.tipoF='';S.q='';go('ingresos')"><span>${d.sinFac.length} ingresos de este trimestre sin factura</span><span>ver ›</span></button>` : ''}
+    </div>
+    ${cfgF('gestor_email', '') ? `<span class="muted" style="font-size:13px">Se enviará a <b>${esc(cfgF('gestor_email', ''))}</b>: un email con el resumen (CSV), las facturas y tickets adjuntos, y el enlace a la carpeta de Drive del trimestre.</span>` : `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">Falta el email de tu gestor: Ajustes → Datos de facturación.</div>`}
+    <label class="f">Mensaje (opcional)<textarea class="in" id="gqMsg" style="background:var(--bg)" placeholder="Ej. Este trimestre he comprado material para Best Athletes."></textarea></label>
+    <button class="btn primary" id="gqBtn" ${cfgF('gestor_email', '') ? '' : 'disabled'} onclick="enviarGestor()">${env ? 'Volver a enviar' : 'Enviar ' + q.t + ' ' + q.anio}</button>
+  </div>`);
+}
+async function enviarGestor() {
+  const btn = $('#gqBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Preparando y enviando…';
+  try {
+    if (isDemo()) { await new Promise(r => setTimeout(r, 600)); toast('En modo demo no se envía nada'); btn.disabled = false; btn.textContent = 'Enviar'; return; }
+    const r = await apiRaw('enviarGestor', { data: { anio: GQ.anio, t: GQ.t, mensaje: ($('#gqMsg') || {}).value || '' } });
+    S.fin.config['enviado_' + GQ.anio + GQ.t] = new Date().toLocaleString('es-ES'); LS.set('af_fin_cache', S.fin);
+    closeSheet(); toast('Enviado ✓ ' + r.facturas + ' facturas y ' + r.gastos + ' gastos');
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Reintentar'; }
 }
 
 /* =================== BONOS =================== */
