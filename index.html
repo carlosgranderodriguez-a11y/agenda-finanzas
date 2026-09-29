@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v20';
+const VERSION = 'v21';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -813,7 +813,7 @@ const tipoName = t => t || 'Sin tipo';
 function lineasOf(i) {
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
   if (!Array.isArray(L) || !L.length) L = [{ tipo: '', importe: num(i.importe), detalle: '' }];
-  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); return o; });
+  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); return o; });
 }
 // importe de un ingreso que corresponde a un tipo concreto (o todo si no hay filtro)
 const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).reduce((s, l) => s + l.importe, 0) : num(i.importe);
@@ -1165,7 +1165,7 @@ function pickCliente(id, silent) {
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
-  const lin = FF._lin.filter(l => num(l.importe)).map(l => { const o = { tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }; if (num(l.bono) > 0) o.bono = num(l.bono); return o; });
+  const lin = FF._lin.filter(l => num(l.importe)).map(l => { const o = { tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); return o; });
   if (!lin.length) { toast('Pon el importe'); return; }
   const o = Object.assign({}, FF, { importe: String(lin.reduce((s, l) => s + l.importe, 0)), lineas: JSON.stringify(lin) });
   delete o._lin; delete o._touched;
@@ -1408,7 +1408,7 @@ async function copiarWidget() {
 // Las sesiones se descuentan con los eventos de la agenda que llevan el nombre del cliente (orden de llegada).
 function allBonos() {
   const out = [];
-  ING().forEach(i => lineasOf(i).forEach(l => { if (num(l.bono) > 0) out.push({ ingId: i.id, cid: i.cliente_id, fecha: i.fecha || '', n: num(l.bono), importe: l.importe, cobrado: cobrado(i) }); }));
+  ING().forEach(i => lineasOf(i).forEach((l, li) => { if (num(l.bono) > 0) out.push({ li, previas: Math.min(num(l.previas) || 0, num(l.bono)), ingId: i.id, cid: i.cliente_id, fecha: i.fecha || '', n: num(l.bono), importe: l.importe, cobrado: cobrado(i) }); }));
   return out.sort((a, b) => a.fecha.localeCompare(b.fecha));
 }
 function sesExcl() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.ses_excluidas) || '[]') || []; } catch (e) { return []; } }
@@ -1434,8 +1434,8 @@ function estadoBono(cid) {
   const pool = (S.bonoEv || []).concat(...Object.values(S.agenda).filter(Array.isArray));
   const ses = pool.filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
   const used = bonos.map(() => []), sinBono = []; let bi = 0;
-  ses.forEach(s => { while (bi < bonos.length && used[bi].length >= bonos[bi].n) bi++; if (bi < bonos.length) used[bi].push(s); else sinBono.push(s); });
-  const info = bonos.map((b, i) => ({ ...b, ses: used[i], hechas: used[i].filter(s => s.start < now).length, reservadas: used[i].filter(s => s.start >= now).length }));
+  ses.forEach(s => { while (bi < bonos.length && used[bi].length >= bonos[bi].n - bonos[bi].previas) bi++; if (bi < bonos.length) used[bi].push(s); else sinBono.push(s); });
+  const info = bonos.map((b, i) => ({ ...b, ses: used[i], hechas: b.previas + used[i].filter(s => s.start < now).length, reservadas: used[i].filter(s => s.start >= now).length }));
   const vivos = info.filter(b => b.hechas < b.n);
   return { bonos: info, activo: vivos[0] || null, quedan: vivos.reduce((s, b) => s + b.n - b.hechas, 0), reservadas: info.reduce((s, b) => s + b.reservadas, 0),
     sinBonoPast: sinBono.filter(s => s.start < now).length, sinBonoFut: sinBono.filter(s => s.start >= now).length, sinBono, ses };
@@ -1481,7 +1481,9 @@ function sheetFicha(cid) {
     ${st ? `<div class="card stack" style="background:var(--bg);gap:10px">
       <div class="row between" style="align-items:flex-end"><div class="col"><span class="eyebrow">${a ? 'Bono actual' : 'Sin bono activo'}</span><span class="big" style="font-size:34px">${st.quedan} <span style="font-size:15px;font-weight:600">${st.quedan === 1 ? 'sesión' : 'sesiones'} ${st.quedan === 1 ? 'queda' : 'quedan'}</span></span></div>${S.loadingBonoEv ? '<span class="spin"></span>' : ''}</div>
       ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>
-        <div class="row" style="gap:8px"><button class="chip" style="background:var(--card)" onclick="S._fichaId=null;sheetIngreso('${a.ingId}')">Editar este bono</button><button class="chip" style="background:var(--badbg);color:var(--bad)" onclick="borrarBono('${a.ingId}','${cid}')">Borrar este bono</button></div>` : ''}
+        <div class="row" style="gap:8px"><button class="chip" style="background:var(--card)" onclick="S._fichaId=null;sheetIngreso('${a.ingId}')">Editar este bono</button><button class="chip" style="background:var(--badbg);color:var(--bad)" onclick="borrarBono('${a.ingId}','${cid}')">Borrar este bono</button></div>
+        <div class="row" style="gap:8px;align-items:center"><button class="btn dark" style="height:44px;flex:1" onclick="ajustarPrevias('${a.ingId}',${a.li},1,'${cid}')">− Restar 1 sesión</button><button class="btn" style="height:44px;flex:1;background:var(--card)" ${a.previas ? '' : 'disabled'} onclick="ajustarPrevias('${a.ingId}',${a.li},-1,'${cid}')">+ Devolver 1</button></div>
+        ${a.previas ? `<span class="muted" style="font-size:12px">${a.previas} ${a.previas === 1 ? 'sesión restada' : 'sesiones restadas'} a mano (hechas antes o fuera de la agenda)</span>` : ''}` : ''}
       ${a && a.ses.length ? `<div class="col" style="gap:4px">${a.ses.map((s, k) => `<span style="font-size:13px">${s.start < nowLocal() ? '●' : '○'} Sesión ${k + 1} · ${fmtS(s)}</span>`).join('')}</div>` : ''}
       ${st.reservadas && !a ? `<span class="muted" style="font-size:13px">${st.reservadas} reservadas en la agenda</span>` : ''}
       ${st.sinBonoPast ? `<div style="background:var(--badbg);color:var(--bad);border-radius:12px;padding:8px 10px;font-size:13px;font-weight:600">${st.sinBonoPast} ${st.sinBonoPast === 1 ? 'sesión hecha' : 'sesiones hechas'} sin bono ni pago: ${st.sinBono.filter(s => s.start < nowLocal()).map(fmtS).join(', ')}</div>` : ''}
@@ -1494,6 +1496,16 @@ function sheetFicha(cid) {
     ${pend ? `<button class="btn" style="background:var(--warnbg);color:var(--warn)" onclick="S.q='${esc(c.nombre).replace(/'/g, '')}';S.filter='pendientes';S.tipoF='';go('ingresos')">Te debe ${eur(pend)} · ver</button>` : ''}
     ${st && st.bonos.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Bonos y sueltas vendidos</span>${st.bonos.slice().reverse().map(b => `<div class="row" style="gap:8px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><span class="grow" style="font-size:13px"><b>${b.n === 1 ? 'Suelta' : 'Bono ' + b.n}</b> · ${fmtLong(b.fecha)} · ${eur(b.importe)} · usadas ${b.hechas}/${b.n}</span><button class="chip" style="background:var(--card);height:32px" onclick="S._fichaId=null;sheetIngreso('${b.ingId}')">Editar</button><button class="iconbtn" aria-label="Borrar" style="width:36px;height:36px;background:var(--badbg);color:var(--bad)" onclick="borrarBono('${b.ingId}','${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>`).join('')}</div>` : ''}
   </div>`);
+}
+async function ajustarPrevias(ingId, li, delta, cid) {
+  const i = ING().find(x => x.id === ingId); if (!i) return;
+  let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
+  if (!L[li]) return;
+  const n = num(L[li].bono), p = Math.max(0, Math.min(n, (num(L[li].previas) || 0) + delta));
+  if (p === (num(L[li].previas) || 0)) { toast(delta > 0 ? 'El bono ya está completo' : 'No hay sesiones restadas'); return; }
+  L[li].previas = p; if (!p) delete L[li].previas;
+  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), delta > 0 ? 'Sesión restada' : 'Sesión devuelta'); render(); sheetFicha(cid); }
+  catch (e) { toast(e.message); }
 }
 async function borrarBono(ingId, cid) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
@@ -1517,6 +1529,7 @@ function renderVenta() {
       <label class="f">Precio (€)<input class="in" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value" style="font-weight:800;font-size:18px"></label>
     </div>
     <label class="f">Fecha<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
+    ${num(VT.n) > 1 ? `<label class="f">Sesiones ya hechas de este bono (fuera de la agenda)<input class="in" inputmode="numeric" value="${esc(VT.previas || '')}" oninput="VT.previas=this.value" placeholder="0"></label>` : ''}
     <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${VT.tipo === t ? 'on' : ''}" style="${VT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="VT.tipo='${esc(t).replace(/'/g, '')}';renderVenta()">${esc(t)}</button>`).join('')}</div></div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span><div class="opt"><button type="button" class="${VT.cobrado === 'si' ? 'on' : ''}" onclick="VT.cobrado='si';renderVenta()">Sí</button><button type="button" class="${VT.cobrado !== 'si' ? 'on' : ''}" onclick="VT.cobrado='no';renderVenta()">No, me debe</button></div></div>
     <button class="btn primary" type="submit">Guardar</button>
@@ -1528,7 +1541,7 @@ async function guardarVenta(ev) {
   const n = Math.max(1, Math.round(num(VT.n))), imp = num(VT.imp);
   if (!imp) { toast('Pon el precio'); return; }
   const det = n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones';
-  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: VT.tipo, importe: imp, detalle: det, bono: n }]) };
+  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
   try {
     await saveIng(o, det + ' apuntado');
@@ -1683,6 +1696,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (SH.sta
 if (!location.hash) history.replaceState(null, '', '#hoy');
 setTimeout(flushQueue, 1500);
 render();
+window.addEventListener('pageshow', () => { if (LS.get('af_hide_open', true) && !S.hide) { S.hide = true; render(); } });
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden' && LS.get('af_hide_open', true) && !S.hide) { S.hide = true; render(); }
   if (document.visibilityState === 'visible' && Date.now() - (S._lastVis || 0) < 60000) return;
