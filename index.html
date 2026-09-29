@@ -91,7 +91,7 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .ev .s{font-size:12px}
 .ev.short{flex-direction:row;align-items:center;justify-content:space-between;padding:0 10px}
 .ev.short .t{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gap{position:absolute;left:46px;right:0;border:1.5px dashed #CFCAC0;border-radius:12px;color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;padding:0 12px}
+.gap{pointer-events:none;position:absolute;left:46px;right:0;border:1.5px dashed #CFCAC0;border-radius:12px;color:var(--muted);font-size:12px;font-weight:600;display:flex;align-items:center;padding:0 12px}
 .nowline{position:absolute;left:38px;right:0;display:flex;align-items:center;z-index:5;pointer-events:none}
 .nowline i{width:9px;height:9px;border-radius:5px;background:var(--now)} .nowline b{flex:1;border-top:2px solid var(--now)}
 .allday{display:flex;flex-wrap:wrap;gap:6px}
@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v19';
+const VERSION = 'v20';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -241,7 +241,7 @@ const S = {
   month: todayStr().slice(0, 7),
   filter: 'todos',
   tipoF: '',
-  hide: LS.get('af_hide', false),
+  hide: LS.get('af_hide_open', true) ? true : LS.get('af_hide', false),
   agenda: {},           // monday -> events
   cats: LS.get('af_cats', DEFAULT_CATS).filter(k => !LS.get('af_areas_off', []).includes(k.id)),
   fin: LS.get('af_fin_cache', null),
@@ -437,7 +437,7 @@ async function loadWeek(mon, force) {
   if (!force && S._failW && S._failW[mon] && Date.now() - S._failW[mon] < 30000) return;
   S.loadingWeek[mon] = true; render();
   try {
-    const r = await api('agenda', { from: mon, to: addDays(mon, 7) });
+    const r = await api('agenda', { from: mon, to: addDays(mon, 7), fresh: force && S._manualRefresh ? 1 : 0 }); S._manualRefresh = false;
     S.agenda[mon] = r.events;
     if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
@@ -500,7 +500,7 @@ function renderNav(r) {
 function afterRender(r) {
   if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
   if (r === 'concepto') loadMonthEv(S.month);
-  if (r === 'bonos' || r === 'clientes' || r === 'resumen') loadBonoEv();
+  if (r === 'bonos' || r === 'clientes') loadBonoEv();
   if (ROUTES[r] === 'fin') loadFin();
   if (r === 'hoy' && !afterRender._scrolled) {
     afterRender._scrolled = true;
@@ -549,7 +549,7 @@ function viewHoy() {
       <button class="iconbtn" aria-label="Semana anterior" onclick="S.day=addDays(S.day,-7);render()">${ICON.left}</button>
       <div class="grow"></div>
       ${d !== todayStr() ? `<button class="chip" onclick="S.day=todayStr();afterRender._scrolled=false;render()">Hoy</button>` : ''}
-      <button class="iconbtn" aria-label="Recargar" onclick="loadWeek('${mon}',true)">${ICON.refresh}</button>
+      <button class="iconbtn" aria-label="Recargar" onclick="S._manualRefresh=true;loadWeek('${mon}',true)">${ICON.refresh}</button>
       <button class="iconbtn" aria-label="Semana siguiente" onclick="S.day=addDays(S.day,7);render()">${ICON.right}</button>
     </div>
     <div class="week">${strip}</div>
@@ -573,7 +573,7 @@ function timeline(d, evs) {
   let h0 = 7, h1 = 22;
   items.forEach(it => { h0 = Math.min(h0, Math.floor(it.s)); h1 = Math.max(h1, Math.min(24, Math.ceil(it.en))); });
   const H = (h1 - h0) * PX;
-  let html = `<div class="tl" style="height:${H + 8}px">`;
+  let html = `<div class="tl" style="height:${H + 8}px" onclick="tapTimeline(event, ${h0})">`;
   for (let h = h0; h <= h1; h++) html += `<div class="hr" style="top:${(h - h0) * PX}px"></div>` + (h < 24 ? `<span class="hl" style="top:${(h - h0) * PX}px">${pad(h)}:00</span>` : '');
   // huecos libres >= 1.5 h entre 8 y 21
   const busy = items.map(it => [it.s, it.en]).sort((a, b) => a[0] - b[0]);
@@ -610,6 +610,7 @@ function findEvent(id, start) {
   return evs.find(e => e.id === id && e.start === start) || evs.find(e => e.id === id);
 }
 function sheetDetalle(id, start) {
+  S._det = [id, start];
   if (S.fin && allBonos().length && !S.bonoRange) loadBonoEv();
   const e = findEvent(id, start); if (!e) return;
   const c = catOf(e.cat), dd = parseD(e.start);
@@ -639,7 +640,7 @@ function sheetEditar(id, start) {
     <label class="f">Título<input class="in" name="title" required value="${esc(e.title)}"></label>
     <label class="f">Día<input class="in" type="date" name="date" value="${e.start.slice(0, 10)}" required></label>
     <div class="grid2">
-      <label class="f">Empieza<input class="in" type="time" name="start" value="${hm(e.start)}" required></label>
+      <label class="f">Empieza<input class="in" type="time" name="start" value="${hm(e.start)}" required oninput="finAuto(this, ${Math.round((hoursOf(e.end) - hoursOf(e.start)) * 60)})"></label>
       <label class="f">Termina<input class="in" type="time" name="end" value="${hm(e.end)}" required></label>
     </div>
     <label class="f">Lugar<input class="in" name="location" value="${esc(e.location || '')}" placeholder="Opcional"></label>
@@ -680,9 +681,10 @@ async function borrarEvento(id, calId) {
   try { await api('deleteEvent', { data: { id, calId } }); closeSheet(); toast('Evento borrado'); markStale(); loadWeek(mondayOf(S.day), true); }
   catch (e) { toast(e.message); }
 }
-function sheetEvento() {
+function sheetEvento(atH) {
   const d = S.day;
   const now = new Date(); let h = now.getHours() + 1; if (h > 21) h = 9;
+  const startV = atH != null ? pad(Math.floor(atH)) + ':' + pad(Math.round((atH % 1) * 60)) : pad(h) + ':00';
   openSheet(`<form class="stack" onsubmit="crearEvento(event)">
     <h1 style="font-size:24px">Nuevo evento</h1>
     <label class="f">Título<input class="in" name="title" placeholder="Ej. Readaptación · Marco (o elige cliente abajo)"></label>
@@ -692,8 +694,8 @@ function sheetEvento() {
     <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="chips" id="clipick" style="flex-wrap:wrap">${cliChips(S.cats[0] && S.cats[0].id)}</div></div>
     <label class="f">Día<input class="in" type="date" name="date" value="${d}" required></label>
     <div class="grid2">
-      <label class="f">Empieza<input class="in" type="time" name="start" value="${pad(h)}:00" required></label>
-      <label class="f">Termina<input class="in" type="time" name="end" value="${pad(Math.min(h + 1, 23))}:00" required></label>
+      <label class="f">Empieza<input class="in" type="time" name="start" value="${startV}" required oninput="finAuto(this)"></label>
+      <label class="f">Termina<input class="in" type="time" name="end" value="${plus1h(startV)}" required></label>
     </div>
     <label class="f">Lugar<input class="in" name="location" placeholder="Opcional"></label>
     <button class="btn dark" type="submit">Guardar en Google Calendar</button>
@@ -713,6 +715,14 @@ function pickCli(b) {
     const a = metaOf(b.dataset.cid).area;
     const cb = a && document.querySelector('#catpick .chip[data-cat="' + a + '"]'); if (cb && !cb.classList.contains('on')) pickCat(cb, true);
   }
+}
+function plus1h(v, mins) { const [H, M] = String(v).split(':').map(Number); let t = H * 60 + M + (mins || 60); if (t > 23 * 60 + 59) t = 23 * 60 + 59; return pad(Math.floor(t / 60)) + ':' + pad(t % 60); }
+function finAuto(inp, mins) { const f = inp.form; if (f && f.end && inp.value) f.end.value = plus1h(inp.value, mins || 60); }
+function tapTimeline(ev, h0) {
+  if (ev.target.closest('.ev')) return;
+  const tl = ev.currentTarget, y = ev.clientY - tl.getBoundingClientRect().top;
+  let h = h0 + y / 46; h = Math.round(h * 2) / 2; if (h < 0) h = 0; if (h > 23) h = 23;
+  sheetEvento(h);
 }
 function pickCat(b, keepCli) {
   document.querySelectorAll('#catpick .chip').forEach(x => { const c = catOf(x.dataset.cat); x.classList.remove('on'); x.style.background = c.bg; x.style.color = c.fg; });
@@ -765,7 +775,7 @@ function viewSemana() {
     <div class="row">
       <button class="iconbtn" aria-label="Semana anterior" onclick="S.day=addDays(S.day,-7);render()">${ICON.left}</button>
       <div class="grow"></div>
-      <button class="iconbtn" aria-label="Recargar" onclick="loadWeek('${mon}',true)">${ICON.refresh}</button>
+      <button class="iconbtn" aria-label="Recargar" onclick="S._manualRefresh=true;loadWeek('${mon}',true)">${ICON.refresh}</button>
       <button class="iconbtn" aria-label="Semana siguiente" onclick="S.day=addDays(S.day,7);render()">${ICON.right}</button>
     </div>
     ${total ? `<div class="catbar">${cats.map(c => `<span style="flex:${byCat[c.id]};background:${c.fg}"></span>`).join('')}</div>
@@ -1328,6 +1338,10 @@ function viewAjustes() {
       <button class="btn dark" onclick="guardarEmisor()">Guardar</button>
     </div>` : ''}
     <div class="card stack" style="gap:8px">
+      <b>Privacidad</b>
+      <label class="row" style="gap:10px;font-size:14px"><input type="checkbox" ${LS.get('af_hide_open', true) ? 'checked' : ''} style="width:22px;height:22px;accent-color:var(--dark)" onchange="LS.set('af_hide_open', this.checked); if (this.checked) { S.hide = true; render(); }"> Ocultar importes siempre al abrir la app (como las apps de bancos). Se ven pulsando el ojo 👁.</label>
+    </div>
+    <div class="card stack" style="gap:8px">
       <b>Áreas de la agenda</b>
       <span class="muted" style="font-size:13px">Cada evento toma el color de su área: por el nombre del cliente en el título, por palabras clave o por su calendario.</span>
       <div class="col" style="gap:6px">${S.cats.map(c => `<button class="row" style="border:0;background:${c.bg};color:${c.fg};border-radius:12px;padding:10px 12px;font-weight:700;font-size:13px;text-align:left" onclick="sheetArea('${c.id}')"><span class="grow">${esc(c.nombre)}</span><span style="font-weight:500;font-size:12px">${clientsOfArea(c.id).length ? clientsOfArea(c.id).length + ' clientes · ' : ''}editar ›</span></button>`).join('')}</div>
@@ -1404,20 +1418,21 @@ S.bonoEv = LS.get('af_bonoev', { e: null }).e; S.bonoRange = '';
 async function loadBonoEv(force) {
   if (!S.fin) return;
   const bl = allBonos(); if (!bl.length) { if (!S.bonoEv) S.bonoEv = []; return; }
-  let from = bl[0].fecha; const lim = addDays(todayStr(), -365); if (from < lim) from = lim; from = addDays(from, -7);
+  let from = bl[0].fecha; const lim = addDays(todayStr(), -120); if (from < lim) from = lim; from = addDays(from, -7);
   const to = addDays(todayStr(), 60), key = from + to;
   if ((!force && S.bonoRange === key) || S.loadingBonoEv) return;
   S.loadingBonoEv = true;
   try { const r = await api('agenda', { from, to }); S.bonoEv = r.events || []; S.bonoRange = key; LS.set('af_bonoev', { e: S.bonoEv }); }
   catch (e) { if (!S.bonoEv) S.bonoEv = []; S.bonoRange = key; }
-  finally { S.loadingBonoEv = false; if (['bonos', 'clientes', 'resumen'].includes(route())) render(); if (S._fichaId && $('#sheet').classList.contains('show')) sheetFicha(S._fichaId); }
+  finally { S.loadingBonoEv = false; if (['bonos', 'clientes', 'resumen'].includes(route())) render(); if (S._det && sheetShown() && /No descontar/.test(SH.cur || '')) sheetDetalle(S._det[0], S._det[1]); if (S._fichaId && $('#sheet').classList.contains('show')) sheetFicha(S._fichaId); }
 }
 function estadoBono(cid) {
   const bonos = allBonos().filter(b => b.cid === cid);
   if (!bonos.length) return null;
   const c = clienteOf(cid), excl = new Set(sesExcl()), start = addDays(bonos[0].fecha, -7), now = nowLocal();
   const seen = new Set();
-  const ses = (S.bonoEv || []).filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
+  const pool = (S.bonoEv || []).concat(...Object.values(S.agenda).filter(Array.isArray));
+  const ses = pool.filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
   const used = bonos.map(() => []), sinBono = []; let bi = 0;
   ses.forEach(s => { while (bi < bonos.length && used[bi].length >= bonos[bi].n) bi++; if (bi < bonos.length) used[bi].push(s); else sinBono.push(s); });
   const info = bonos.map((b, i) => ({ ...b, ses: used[i], hechas: used[i].filter(s => s.start < now).length, reservadas: used[i].filter(s => s.start >= now).length }));
@@ -1669,7 +1684,9 @@ if (!location.hash) history.replaceState(null, '', '#hoy');
 setTimeout(flushQueue, 1500);
 render();
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') { flushQueue(); const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); }
+  if (document.visibilityState === 'hidden' && LS.get('af_hide_open', true) && !S.hide) { S.hide = true; render(); }
+  if (document.visibilityState === 'visible' && Date.now() - (S._lastVis || 0) < 60000) return;
+  if (document.visibilityState === 'visible') { S._lastVis = Date.now(); flushQueue(); const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); }
 });
 setInterval(() => { if (route() === 'hoy' && S.day === todayStr() && !$('#sheet').classList.contains('show')) render(); }, 60000);
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

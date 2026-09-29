@@ -79,7 +79,14 @@ function handle_(p) {
     if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) {} }
     var A = {
       ping: function () { return { ok: true }; },
-      agenda: function () { return getAgenda_(p.from, p.to); },
+      agenda: function () {
+        // guardado 2 min (Google Calendar es lento); se invalida al crear/editar/borrar desde la app
+        var c = CacheService.getScriptCache(), v = c.get('agv') || '0', k = 'ag_' + v + '_' + p.from + '_' + p.to;
+        if (!p.fresh) { var hit = c.get(k); if (hit) return JSON.parse(hit); }
+        var r = getAgenda_(p.from, p.to);
+        try { c.put(k, JSON.stringify(r), 120); } catch (e) {}
+        return r;
+      },
       createEvent: function () { return createEvent_(data); },
       deleteEvent: function () { return deleteEvent_(data); },
       finanzas: function () { return getFinanzas_(); },
@@ -103,7 +110,7 @@ function handle_(p) {
       }
     };
     if (!A[p.action]) throw new Error('Acción desconocida: ' + p.action);
-    if (/^(save|delete|create|update)/.test(p.action)) { try { CacheService.getScriptCache().remove('widget'); } catch (e) {} }
+    if (/^(save|delete|create|update)/.test(p.action)) { try { var cc = CacheService.getScriptCache(); cc.remove('widget'); cc.put('agv', String(Date.now()), 21600); } catch (e) {} }
     out = { ok: true, data: A[p.action]() };
   } catch (err) {
     out = { ok: false, error: String(err.message || err) };
