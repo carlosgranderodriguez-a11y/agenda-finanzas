@@ -45,7 +45,7 @@ async function getData(timeout, maxAge) {
 }
 
 const eurVis = n => Math.round(n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' €'
-let HIDE = false  // importes ocultos: lo decide la app (ojo) o poner «privado» en Parameter del widget
+let HIDE = true  // importes ocultos SIEMPRE; para verlos en el widget pon «visible» en Parameter
 const eur = n => HIDE ? '•••• €' : eurVis(n)
 const hrs = s => { const [h, m] = s.slice(11, 16).split(':').map(Number); return h + m / 60 }
 const hstr = h => (Math.round(h * 10) / 10).toString().replace('.', ',')
@@ -206,8 +206,8 @@ function inAppHTML(d) {
   <div class="row"><div><div class="e">${DIAS[now.getDay()]} · hoy</div><h1>${now.getDate()} ${MESL[now.getMonth()]}</h1></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">${hstr(work)} h</div><div class="m" style="color:#5C5F66">${d.today.length} bloques</div></div></div>
   <div>${ev}</div>
   <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
-  <div class="card fin" ${d.ocultar ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${d.ocultar ? ' · toca para ver' : ''}</div><div class="big" data-v="${d.ocultar ? eurVis(d.mes.ingresos || 0) : ''}">${d.ocultar ? '•••• €' : eurVis(d.mes.ingresos || d.mes.facturado || 0)}</div><div class="m">ingresos del mes</div>
-    <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben <span data-v="${d.ocultar ? eurVis(d.mes.pendiente || 0) : ''}">${d.ocultar ? '•••• €' : eurVis(d.mes.pendiente || 0)}</span></div></div>
+  <div class="card fin" ${true ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${' · toca para ver'}</div><div class="big" data-v="${eurVis(d.mes.ingresos || 0)}">•••• €</div><div class="m">ingresos del mes</div>
+    <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben <span data-v="${eurVis(d.mes.pendiente || 0)}">•••• €</span></div></div>
   <a class="btn" href="${APP_URL}">Abrir la app completa</a>
   </body></html>`
 }
@@ -222,6 +222,20 @@ function errorHTML(msg) {
   <p>Si el error dice «Clave incorrecta», vuelve a copiar el código desde la app → Ajustes.</p></body></html>`
 }
 
+// Se actualiza solo: al abrirlo desde Scriptable descarga la última versión de la app
+async function autoUpdate() {
+  try {
+    const r = new Request(APP_URL + 'widget.js?t=' + Date.now()); r.timeoutInterval = 8
+    let code = await r.loadString()
+    if (!code.includes('const API = ') || !code.includes('async function run()')) return false
+    code = code.replace("const API = ''", "const API = '" + API + "'").replace("const TOKEN = ''", "const TOKEN = '" + TOKEN + "'")
+    const fm = FileManager.iCloud().isFileStoredIniCloud(module.filename) ? FileManager.iCloud() : FileManager.local()
+    const cur = fm.readString(module.filename)
+    if (cur && cur.trim() !== code.trim()) { fm.writeString(module.filename, code); return true }
+  } catch (e) {}
+  return false
+}
+
 async function run() {
   const inApp = !config.runsInWidget
   let d = null, err = null
@@ -229,11 +243,12 @@ async function run() {
     try {
       if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
       d = await getData(12, 10)
-      HIDE = !!d.ocultar || (args.widgetParameter || '').toLowerCase().includes('privado')
+      HIDE = !(args.widgetParameter || '').toLowerCase().includes('visible')
     } catch (e) { err = e }
   }
 
   if (inApp) {
+    autoUpdate()
     // abierto tocando el widget o desde Scriptable: se muestra al momento lo guardado y luego se actualiza
     const wv = new WebView()
     const c = readCache()
