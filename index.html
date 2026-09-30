@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v24';
+const VERSION = 'v25';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -806,7 +806,7 @@ const clienteOf = id => (S.fin?.clientes || []).find(c => c.id === id) || { nomb
 const ING = () => (S.fin?.ingresos || []);
 const cobrado = i => i.cobrado === 'si';
 const facturado = i => i.facturado === 'si';
-const METODOS = [['efectivo', 'Efectivo'], ['bizum', 'Bizum'], ['transferencia', 'Transferencia'], ['tarjeta', 'Tarjeta']];
+const METODOS = [['bizum', 'Bizum'], ['efectivo', 'En mano'], ['transferencia', 'Transferencia'], ['tarjeta', 'Tarjeta']];
 const metNom = m => (METODOS.find(x => x[0] === m) || [0, 'Sin indicar'])[1];
 const metChips = (cur, fn) => `<div class="opt" style="flex-wrap:wrap">${METODOS.map(([v, l]) => `<button type="button" class="${cur === v ? 'on' : ''}" onclick="${fn}('${v}')">${l}</button>`).join('')}</div>`;
 const noFacturar = i => (clienteOf(i.cliente_id).factura || 'si') === 'no';
@@ -874,6 +874,15 @@ function viewResumen() {
       <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span></button>
       <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='sinfactura';go('ingresos')"><span style="color:var(--accent)">Sin facturar · ${sinFac.length}</span><span>${eur0(sumI(sinFac))}</span></button>
     </div>
+    ${(() => { const q = cajaMes(S.month); const ms = METODOS.filter(([m]) => m !== 'tarjeta' || q.porM.tarjeta || q.gM.tarjeta); const sin = (q.porM[''] || 0) + (q.gM[''] || 0);
+      return `<button class="card stack" style="border:0;text-align:left;width:100%;gap:10px" onclick="go('caja')">
+      <div class="row between"><b style="font-size:14px">Cobros y gastos por método · ${MES_C[parseD(S.month + '-01').getMonth()]}</b><span style="font-size:18px">›</span></div>
+      <div style="display:grid;grid-template-columns:repeat(${ms.length}, minmax(0,1fr));gap:8px">${ms.map(([m, l]) => `<div style="background:var(--bg);border-radius:14px;padding:10px 8px;display:flex;flex-direction:column;gap:4px">
+        <span style="font-size:12px;font-weight:700;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${l}</span>
+        <span style="font-size:15px;font-weight:800;color:var(--ok)">+${eur0(q.porM[m] || 0)}</span>
+        <span style="font-size:12px;font-weight:700;color:var(--bad)">${q.gM[m] ? '−' + eur0(q.gM[m]) : '—'}</span></div>`).join('')}</div>
+      ${sin ? `<span class="muted" style="font-size:11px">Hay ${eur0(sin)} sin método indicado (cobros o gastos antiguos): edítalos para asignarlo.</span>` : ''}
+    </button>`; })()}
     ${(() => { const L = bonosResumen(); if (!L.length) return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos y sesiones sueltas</b><span class="muted" style="font-size:12px">Vende un bono y ve cuántas sesiones le quedan a cada cliente</span></span><span style="font-size:20px">›</span></button>`; const ren = L.filter(x => x.st.quedan <= 1).length, deben = L.filter(x => x.st.sinBonoPast).length;
       return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos</b><span class="muted" style="font-size:12px">${L.length} cliente${L.length === 1 ? '' : 's'}${ren ? ' · <b style="color:var(--warn)">' + ren + ' por renovar</b>' : ''}${deben ? ' · <b style="color:var(--bad)">' + deben + ' con sesiones sin pagar</b>' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
     <div class="card stack" style="gap:10px">
@@ -1679,7 +1688,7 @@ function viewCaja() {
     </div>
     <div class="card stack" style="gap:10px"><b style="font-size:14px">Cómo te han pagado</b>
       ${mets.filter(m => q.porM[m] || q.gM[m]).map(m => `<div class="row" style="font-size:14px;gap:8px"><span class="grow">${metNom(m)}</span><span style="color:var(--ok);font-weight:700">+${eur0(q.porM[m] || 0)}</span><span style="color:var(--bad);font-weight:700;width:80px;text-align:right">${q.gM[m] ? '−' + eur0(q.gM[m]) : ''}</span></div>`).join('') || '<span class="muted" style="font-size:13px">Sin movimientos este mes.</span>'}
-      ${q.porM.efectivo || q.gM.efectivo ? `<div class="row between" style="background:var(--bg);border-radius:12px;padding:8px 10px;font-size:13px"><span>Efectivo neto del mes</span><b>${eur0(efectivo)}</b></div>` : ''}
+      ${q.porM.efectivo || q.gM.efectivo ? `<div class="row between" style="background:var(--bg);border-radius:12px;padding:8px 10px;font-size:13px"><span>En mano: neto del mes</span><b>${eur0(efectivo)}</b></div>` : ''}
       ${q.porM[''] ? `<span class="muted" style="font-size:12px">«Sin indicar» son cobros apuntados antes de existir el método. Puedes editarlos en Ingresos.</span>` : ''}
     </div>
     <div class="card stack" style="gap:10px"><div class="row between"><b style="font-size:14px">Últimos 6 meses</b><span class="muted" style="font-size:12px"><i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:var(--ok)"></i> entra · <i style="display:inline-block;width:8px;height:8px;border-radius:4px;background:#D9412B"></i> sale</span></div>
