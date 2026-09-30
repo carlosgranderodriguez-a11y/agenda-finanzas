@@ -14,8 +14,8 @@
 
 var SHEETS = {
   Clientes: ['id', 'nombre', 'nif', 'email', 'tarifa', 'color', 'notas', 'direccion', 'tipo_fiscal', 'iva', 'irpf', 'factura'],
-  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas', 'lineas', 'factura_url', 'factura_datos'],
-  Gastos: ['id', 'fecha', 'concepto', 'categoria', 'importe', 'proveedor', 'iva_pct', 'adjunto_url', 'adjunto_nombre'],
+  Ingresos: ['id', 'fecha', 'cliente_id', 'concepto', 'importe', 'cobrado', 'fecha_cobro', 'facturado', 'num_factura', 'notas', 'lineas', 'factura_url', 'factura_datos', 'metodo'],
+  Gastos: ['id', 'fecha', 'concepto', 'categoria', 'importe', 'proveedor', 'iva_pct', 'adjunto_url', 'adjunto_nombre', 'metodo'],
   Categorias: ['id', 'nombre', 'fg', 'bg', 'palabras_clave', 'calendario'],
   Config: ['clave', 'valor']
 };
