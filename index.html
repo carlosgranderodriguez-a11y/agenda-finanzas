@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v30';
+const VERSION = 'v31';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2061,6 +2061,17 @@ async function syncAreaKeywords(nombre, area, prevArea) {
   LS.set('af_cats', S.cats); markStale();
 }
 let AR = null, AR_from = '';
+// color libre: si es claro va de fondo (texto en su versión oscura); si es oscuro, de texto (fondo en su versión clara)
+function hexRGB(h) { const n = parseInt(String(h).replace('#', ''), 16); return [n >> 16, (n >> 8) & 255, n & 255]; }
+function rgbHex(a) { return '#' + a.map(v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0')).join(''); }
+function lum(h) { const [r, g, b] = hexRGB(h); return (0.299 * r + 0.587 * g + 0.114 * b) / 255; }
+function areaMain(k) { return lum(k.bg) > 0.85 ? k.fg : k.bg; }
+function pickArea(hex) {
+  const c = hexRGB(hex);
+  if (lum(hex) < 0.35) { AR.fg = hex; AR.bg = rgbHex(c.map(v => v * 0.15 + 255 * 0.85)); }
+  else { AR.bg = hex; AR.fg = rgbHex(c.map(v => v * 0.3)); }
+  renderArea();
+}
 function sheetArea(id, from) {
   AR_from = from || '';
   const src = id ? S.cats.find(k => k.id === id) : null;
@@ -2074,7 +2085,8 @@ function renderArea() {
   openSheet(`<form class="stack" onsubmit="guardarArea(event)">
     <h1 style="font-size:24px">${AR.id ? 'Editar área' : 'Nueva área'}</h1>
     <label class="f">Nombre<input class="in" required value="${esc(AR.nombre)}" oninput="AR.nombre=this.value" placeholder="Ej. Best Athletes"></label>
-    <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${AREA_PALETTE.map(p => `<button type="button" aria-label="Color ${p[0]}" onclick="AR.fg='${p[0]}';AR.bg='${p[1]}';renderArea()" style="width:40px;height:40px;border-radius:12px;background:${p[1]};border:${AR.fg === p[0] ? '3px solid ' + p[0] : '0'};display:flex;align-items:center;justify-content:center"><i style="width:14px;height:14px;border-radius:7px;background:${p[0]}"></i></button>`).join('')}</div></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${AREA_PALETTE.map(p => `<button type="button" aria-label="Color ${p[0]}" onclick="AR.fg='${p[0]}';AR.bg='${p[1]}';renderArea()" style="width:40px;height:40px;border-radius:12px;background:${p[1]};border:${AR.fg === p[0] ? '3px solid ' + p[0] : '0'};display:flex;align-items:center;justify-content:center"><i style="width:14px;height:14px;border-radius:7px;background:${p[0]}"></i></button>`).join('')}</div>
+      <label class="row" style="gap:10px;font-size:14px;font-weight:600;background:var(--bg);border-radius:12px;padding:8px 12px"><input type="color" value="${/^#[0-9a-f]{6}$/i.test(areaMain(AR)) ? areaMain(AR) : '#888888'}" onchange="pickArea(this.value)" style="width:44px;height:36px;border:0;background:none;padding:0"> Elegir mi propio color</label></div>
     <div style="background:${AR.bg};color:${AR.fg};border-radius:12px;padding:8px 12px;font-weight:700;font-size:13px">Así se verá: ${esc(AR.nombre || 'Nueva área')} · 10:00</div>
     <label class="f">Palabras del título que lo activan (opcional)<input class="in" value="${esc(AR.palabras_clave)}" oninput="AR.palabras_clave=this.value" placeholder="best athletes, ba"></label>
     ${cls.length ? `<span class="muted" style="font-size:13px">Clientes en esta área: ${cls.map(c => esc(c.nombre)).join(', ')}</span>` : `<span class="muted" style="font-size:13px">Asigna clientes a esta área desde su ficha (Finanzas → Clientes).</span>`}
