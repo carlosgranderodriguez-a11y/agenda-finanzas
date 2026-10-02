@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v28';
+const VERSION = 'v29';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1273,12 +1273,42 @@ async function guardarIngreso(ev) {
 }
 
 /* =================== GASTOS =================== */
+// Gastos deducibles: Config 'gastos_ded' = JSON {idGasto: % deducible (0-100)}
+function dedMap() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.gastos_ded) || '{}') || {}; } catch (e) { return {}; } }
+function dedPct(g) { const v = dedMap()[g.id]; return v == null ? 0 : Math.max(0, Math.min(100, num(v))); }
+function dedCalc(L) { let tot = 0, base = 0, iva = 0; L.forEach(g => { const k = dedPct(g) / 100, imp = num(g.importe), b = imp / (1 + num(g.iva_pct) / 100); tot += imp * k; base += b * k; iva += (imp - b) * k; }); return { tot, base, iva }; }
+async function saveDed(id, pct) {
+  const m = dedMap(); if (num(m[id]) === pct && m[id] != null) return; m[id] = pct;
+  const v = JSON.stringify(m); await api('saveConfig', { data: { gastos_ded: v } }); S.fin.config = Object.assign(S.fin.config || {}, { gastos_ded: v }); LS.set('af_fin_cache', S.fin);
+}
 function viewGastos() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const ym = S.month, md = parseD(ym + '-01');
   const G = S.fin.gastos.filter(g => (g.fecha || '').slice(0, 7) === ym).sort((a, b) => b.fecha.localeCompare(a.fecha));
   const tot = G.reduce((s, g) => s + num(g.importe), 0);
   const byCat = {}; G.forEach(g => byCat[g.categoria || 'Otros'] = (byCat[g.categoria || 'Otros'] || 0) + num(g.importe));
+  const tab = S.gTab || 'todos', D = G.filter(g => dedPct(g) > 0), dc = dedCalc(D);
+  const q = Math.floor(md.getMonth() / 3), qm = [0, 1, 2].map(i => ym.slice(0, 5) + String(q * 3 + i + 1).padStart(2, '0'));
+  const dq = dedCalc(S.fin.gastos.filter(g => qm.includes((g.fecha || '').slice(0, 7)) && dedPct(g) > 0));
+  const sinMarcar = G.filter(g => dedMap()[g.id] == null).length;
+  const fila = g => `<button class="li" onclick="sheetGasto('${g.id}')"><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(g.concepto)}</b><span class="muted" style="font-size:12px">${parseD(g.fecha).getDate()} ${MES_C[parseD(g.fecha).getMonth()]} · ${esc(g.categoria || 'Otros')}${g.proveedor ? ' · ' + esc(g.proveedor) : ''}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(num(g.importe))}</b><span class="row" style="gap:4px">${dedPct(g) > 0 ? `<span class="badge b-ok">Desgrava${dedPct(g) < 100 ? ' ' + dedPct(g) + '%' : ''}</span>` : ''}${g.adjunto_url ? '<span class="badge b-ok">Justificante</span>' : '<span class="badge b-warn">Sin foto</span>'}</span></span></button>`;
+  const tabs = `<div class="opt"><button class="${tab === 'todos' ? 'on' : ''}" onclick="S.gTab='todos';render()">Todos · ${G.length}</button><button class="${tab === 'ded' ? 'on' : ''}" onclick="S.gTab='ded';render()">Deducibles · ${D.length}</button></div>`;
+  if (tab === 'ded') return `<div class="stack">
+    ${demoBanner()}
+    <div class="row between">
+      <button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button>
+      <h1 style="font-size:24px;text-transform:capitalize">Gastos · ${MES_C[md.getMonth()]} ${md.getFullYear()}</h1>
+      <button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button>
+    </div>
+    ${tabs}
+    <div class="hero" style="gap:10px"><div class="col"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Deducible este mes</span><span class="big" style="font-size:36px">${eur(dc.tot)}</span></div>
+      <div class="grid2"><div class="mini"><span>Base (sin IVA)</span><span>${eur(dc.base)}</span></div><div class="mini"><span>IVA soportado</span><span>${eur(dc.iva)}</span></div></div>
+      <span style="font-size:12px;color:var(--dmuted)">Trimestre T${q + 1}: <b style="color:#fff">${eur(dq.tot)}</b> · base ${eur(dq.base)} · IVA ${eur(dq.iva)}</span></div>
+    ${D.some(g => !g.adjunto_url) ? `<span class="badge b-warn" style="align-self:flex-start">${D.filter(g => !g.adjunto_url).length} deducibles sin justificante</span>` : ''}
+    <div class="card" style="padding:4px 14px">${D.length ? D.map(fila).join('') : `<div class="empty">Ningún gasto marcado como deducible este mes.</div>`}</div>
+    ${sinMarcar ? `<span class="muted" style="font-size:12px">${sinMarcar} gastos de este mes están sin marcar: ábrelos y elige si desgravan.</span>` : ''}
+    <span class="muted" style="font-size:11px">Orientativo: qué desgrava y en qué % lo confirma tu gestor.</span>
+  </div>`;
   return `<div class="stack">
     ${demoBanner()}
     <div class="row between">
@@ -1286,17 +1316,18 @@ function viewGastos() {
       <h1 style="font-size:24px;text-transform:capitalize">Gastos · ${MES_C[md.getMonth()]} ${md.getFullYear()}</h1>
       <button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button>
     </div>
+    ${tabs}
     <div class="hero" style="gap:6px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Total gastado</span><span class="big" style="font-size:36px">${eur(tot)}</span>
       <div class="legend" style="color:#C9CBD1">${Object.keys(byCat).map(k => `<span>${esc(k)} <b style="color:#fff">${eur0(byCat[k])}</b></span>`).join('')}</div></div>
     <div class="grid2"><button class="btn dark" onclick="sheetGasto()">+ Añadir gasto</button><button class="btn primary" onclick="sheetGasto(null, true)">Foto de ticket</button></div>
-    <div class="card" style="padding:4px 14px">${G.length ? G.map(g => `<button class="li" onclick="sheetGasto('${g.id}')"><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(g.concepto)}</b><span class="muted" style="font-size:12px">${parseD(g.fecha).getDate()} ${MES_C[parseD(g.fecha).getMonth()]} · ${esc(g.categoria || 'Otros')}${g.proveedor ? ' · ' + esc(g.proveedor) : ''}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(num(g.importe))}</b>${g.adjunto_url ? '<span class="badge b-ok">Justificante</span>' : '<span class="badge b-warn">Sin foto</span>'}</span></button>`).join('') : `<div class="empty">Sin gastos este mes.</div>`}</div>
+    <div class="card" style="padding:4px 14px">${G.length ? G.map(fila).join('') : `<div class="empty">Sin gastos este mes.</div>`}</div>
   </div>`;
 }
 let GG = null;
 function sheetGasto(id, abrirCamara) {
   const src = id ? S.fin.gastos.find(x => x.id === id) : null;
   GG = src ? Object.assign({}, src) : { fecha: S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01', concepto: '', categoria: 'Material', importe: '', proveedor: '', iva_pct: '21' };
-  GG._file = null;
+  GG._file = null; GG._ded = src ? (dedMap()[src.id] == null ? '' : String(dedPct(src))) : '100';
   renderGasto();
   if (abrirCamara) setTimeout(() => { const f = $('#gCam'); if (f) f.click(); }, 150);
 }
@@ -1317,6 +1348,8 @@ function renderGasto() {
     </div>
     <div class="col" style="gap:6px"><span class="eyebrow">IVA del ticket</span><div class="opt">${ivaOpts.map(v => `<button type="button" class="${num(GG.iva_pct) === v && String(GG.iva_pct) !== '' ? 'on' : ''}" onclick="GG.iva_pct='${v}';renderGasto()">${v ? v + '%' : 'Sin IVA'}</button>`).join('')}</div></div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo lo pagaste?</span>${metChips(GG.metodo || '', 'setGgM')}</div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Desgrava?</span><div class="opt"><button type="button" class="${num(GG._ded) > 0 ? 'on' : ''}" onclick="GG._ded=num(GG._ded)>0?GG._ded:'100';renderGasto()">Sí</button><button type="button" class="${GG._ded !== '' && !num(GG._ded) ? 'on' : ''}" onclick="GG._ded='0';renderGasto()">No</button></div>
+      ${num(GG._ded) > 0 ? `<div class="chips" style="flex-wrap:wrap">${[100, 50, 30].map(v => `<button type="button" class="chip ${num(GG._ded) === v ? 'on' : ''}" style="${num(GG._ded) === v ? '' : 'background:var(--bg)'}" onclick="GG._ded='${v}';renderGasto()">${v}%</button>`).join('')}<input class="in" inputmode="numeric" style="width:90px" value="${esc(GG._ded)}" oninput="GG._ded=this.value" aria-label="Porcentaje deducible"></div>` : ''}</div>
     <label class="f">Categoría<select class="in" onchange="GG.categoria=this.value">${GASTO_CATS.map(c => `<option ${GG.categoria === c ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
     <button class="btn dark" type="submit" id="gSave">Guardar</button>
     ${GG.id ? `<button class="btn danger" type="button" onclick="borrarGasto('${GG.id}')">Borrar</button>` : ''}
@@ -1349,7 +1382,7 @@ async function guardarGasto(ev) {
   if (!num(GG.importe)) { toast('Pon el importe'); return; }
   const btn = $('#gSave'); btn.disabled = true;
   try {
-    const o = Object.assign({}, GG, { importe: String(num(GG.importe)) }); delete o._file;
+    const o = Object.assign({}, GG, { importe: String(num(GG.importe)) }); delete o._file; delete o._ded;
     if (GG._file) {
       btn.innerHTML = '<span class="spin"></span> Subiendo justificante…';
       if (isDemo()) { o.adjunto_url = '#demo'; o.adjunto_nombre = GG._file.nombre; }
@@ -1365,6 +1398,7 @@ async function guardarGasto(ev) {
       }
     }
     const g = await api('saveGasto', { data: o });
+    if (GG._ded !== '') { try { await saveDed(g.id, Math.max(0, Math.min(100, Math.round(num(GG._ded))))); } catch (e) { toast('Gasto guardado, pero no se pudo marcar como deducible'); } }
     const i = S.fin.gastos.findIndex(x => x.id === g.id); if (i >= 0) S.fin.gastos[i] = g; else S.fin.gastos.push(g);
     LS.set('af_fin_cache', S.fin); closeSheet(); toast('Gasto guardado'); render();
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar'; }
