@@ -11,11 +11,13 @@ const APP_URL = 'https://carlosgranderodriguez-a11y.github.io/agenda-finanzas/'
 const C = {
   bg: new Color('#F4F2ED'), dark: new Color('#17181C'), ink: new Color('#17181C'),
   muted: new Color('#5C5F66'), dmuted: new Color('#A9ACB4'), now: new Color('#D9412B'),
-  green: new Color('#7FD1AE'), amber: new Color('#F0C866'), track: new Color('#E6E2D9')
+  green: new Color('#7FD1AE'), amber: new Color('#F0C866'), track: new Color('#ECE9E3')
 }
 // color principal del área: el fondo si lo eligió el usuario (no es un pastel muy claro); si no, el color de texto
 function lum(h) { const n = parseInt(String(h || '').replace('#', ''), 16); return isNaN(n) ? 0 : (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 }
-function main(c) { return lum(c.bg) > 0.85 ? c.fg : c.bg }
+function mix(a, b, t) { const p = h => { const n = parseInt(String(h || '').replace('#', ''), 16); return [n >> 16, (n >> 8) & 255, n & 255] }, x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join('') }
+// los pasteles de la app, un punto más marcados para que se distingan en el widget; un color elegido a mano se usa tal cual
+function main(c) { try { return lum(c.bg) > 0.85 ? mix(c.bg, c.fg, 0.3) : c.bg } catch (e) { return c.fg } }
 const OTRO = { id: 'otro', nombre: 'Otros', fg: '#4A4D55', bg: '#E6E3DC' }
 const DL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
