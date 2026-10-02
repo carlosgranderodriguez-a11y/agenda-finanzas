@@ -161,7 +161,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v25';
+const VERSION = 'v26';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -249,6 +249,7 @@ const S = {
   loadingFin: false
 };
 Object.assign(S.agenda, LS.get('af_agenda_cache', {}));
+Object.keys(S.agenda).forEach(k => { if (Array.isArray(S.agenda[k])) S.agenda[k] = S.agenda[k].filter(e => e && !e._tmp); });
 const catOf = id => S.cats.find(c => c.id === id) || OTRO;
 function visibleCats(list) { const off = LS.get('af_areas_off', []); return list.filter(k => !off.includes(k.id)); }
 const AREA_PALETTE = [['#9C2F5B', '#F6DCE7'], ['#1F6E78', '#D3EBEE'], ['#5B6B12', '#E6ECCB'], ['#3B4A5E', '#DDE3EA'], ['#8A6A00', '#F4EABF'], ['#1B5E48', '#D6EDE2'], ['#2F3F9E', '#DCE1F6'], ['#A8471A', '#F7DDCC'], ['#5E3F82', '#E6DCF1'], ['#7A4E00', '#F3E4BF']];
@@ -438,7 +439,8 @@ async function loadWeek(mon, force) {
   S.loadingWeek[mon] = true; render();
   try {
     const r = await api('agenda', { from: mon, to: addDays(mon, 7), fresh: force && S._manualRefresh ? 1 : 0 }); S._manualRefresh = false;
-    S.agenda[mon] = r.events;
+    const tmps = (S.agenda[mon] || []).filter(e => e && e._tmp);
+    S.agenda[mon] = r.events.concat(tmps.filter(t => !r.events.some(e => e.title === t.title && e.start === t.start)));
     if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
     LS.set('af_agenda_cache', keep);
@@ -521,6 +523,7 @@ function weekEvents(mon) {
   const M = evAreaMap();
   return (S.agenda[mon] || []).filter(e => e && e.start).map(e => {
     if (M[e.id] && S.cats.some(k => k.id === M[e.id])) return Object.assign({}, e, { cat: M[e.id] });
+    if (e._tmp) return e;
     if (!R.length) return e;
     const t = (e.title || '').toLowerCase(), r = R.find(r => t.includes(r.n));
     return r ? Object.assign({}, e, { cat: r.area }) : e;
@@ -722,6 +725,28 @@ function pickCli(b) {
     const cb = a && document.querySelector('#catpick .chip[data-cat="' + a + '"]'); if (cb && !cb.classList.contains('on')) pickCat(cb, true);
   }
 }
+async function guardarEventoBg(data, tmp, mon) {
+  try {
+    const r = await api('createEvent', { data });
+    if (r && r.id && String(r.id).indexOf('tmp') !== 0) {
+      tmp.id = r.id; tmp.cal = r.cal || ''; delete tmp._tmp;
+      // recuerda el área elegida para este evento (y toda su serie si se repite)
+      if (!S.fin) { try { S.fin = await api('finanzas'); S._finFresh = true; } catch (e) {} }
+      if (S.fin) {
+        const M = evAreaMap(); M[r.id] = data.cat; const v = JSON.stringify(M);
+        S.fin.config = Object.assign(S.fin.config || {}, { eventos_area: v }); LS.set('af_fin_cache', S.fin);
+        api('saveConfig', { data: { eventos_area: v } }).catch(() => {});
+      }
+    }
+    S.monthEv = {}; S.bonoRange = '';
+    S._manualRefresh = true; await loadWeek(mon, true);
+    // si Google aún no lo devuelve, mantenemos el nuestro
+    if (S.agenda[mon] && !S.agenda[mon].some(e => e.id === tmp.id && e.start === tmp.start)) { S.agenda[mon].push(tmp); S.agenda[mon].sort((a, b) => a.start < b.start ? -1 : 1); render(); }
+  } catch (e) {
+    if (S.agenda[mon]) S.agenda[mon] = S.agenda[mon].filter(x => x !== tmp);
+    render(); toast('No se pudo guardar el evento: ' + e.message);
+  }
+}
 function plus1h(v, mins) { const [H, M] = String(v).split(':').map(Number); let t = H * 60 + M + (mins || 60); if (t > 23 * 60 + 59) t = 23 * 60 + 59; return pad(Math.floor(t / 60)) + ':' + pad(t % 60); }
 function finAuto(inp, mins) { const f = inp.form; if (f && f.end && inp.value) f.end.value = plus1h(inp.value, mins || 60); }
 function tapTimeline(ev, h0) {
@@ -754,8 +779,14 @@ async function crearEvento(ev) {
     const cada = +((document.querySelector('#repOpt button.on') || {}).dataset || {}).v || 0;
     const repetir = cada ? { cada, hasta: f.sinfin.checked ? '' : f.hasta.value } : null;
     if (repetir && repetir.hasta && repetir.hasta < date) { toast('La fecha «hasta» es anterior al evento'); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; return; }
-    await api('createEvent', { data: { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir } });
-    closeSheet(); toast(repetir ? 'Evento semanal creado' + (repetir.hasta ? ' hasta el ' + fmtLong(repetir.hasta) : ' sin fecha de fin') : 'Evento creado'); S.day = date; markStale(); go('hoy'); loadWeek(mondayOf(date), true);
+    const data = { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir };
+    // 1) aparece al instante en la agenda con su área; 2) se guarda en Google Calendar por detrás
+    const mon = mondayOf(date), tmp = { id: 'tmp' + uid(), cal: 'Guardando…', calId: '', title, start: data.start + ':00', end: data.end + ':00', allDay: false, location: data.location, cat, _tmp: true };
+    if (!S.agenda[mon]) S.agenda[mon] = [];
+    S.agenda[mon].push(tmp); S.agenda[mon].sort((a, b) => a.start < b.start ? -1 : 1);
+    S.tmpArea = S.tmpArea || {}; S.tmpArea[tmp.id] = cat;
+    closeSheet(); S.day = date; toast(repetir ? 'Evento semanal creado' + (repetir.hasta ? ' hasta el ' + fmtLong(repetir.hasta) : ' sin fecha de fin') : 'Evento creado'); go('hoy');
+    guardarEventoBg(data, tmp, mon);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; }
 }
 

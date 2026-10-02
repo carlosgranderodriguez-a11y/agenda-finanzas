@@ -249,6 +249,10 @@ function getAgenda_(from, to) {
   var start = from ? parseLocal_(from) : new Date(new Date().setHours(0, 0, 0, 0));
   var end = to ? parseLocal_(to) : new Date(start.getTime() + 7 * 86400000);
   var cats = categorias_();
+  // áreas elegidas a mano para eventos concretos (Config → eventos_area)
+  var areaMap = {}, catIds = {};
+  try { areaMap = JSON.parse(getConfig_().eventos_area || '{}') || {}; } catch (e) { areaMap = {}; }
+  cats.forEach(function (c) { catIds[c.id] = true; });
   var events = [];
   calendars_().forEach(function (cal) {
     var calName = cal.getName();
@@ -262,7 +266,7 @@ function getAgenda_(from, to) {
         end: iso_(ev.getEndTime()),
         allDay: ev.isAllDayEvent(),
         location: ev.getLocation(),
-        cat: classify_(ev.getTitle(), calName, cats)
+        cat: (areaMap[ev.getId()] && catIds[areaMap[ev.getId()]]) ? areaMap[ev.getId()] : classify_(ev.getTitle(), calName, cats)
       });
     });
   });
