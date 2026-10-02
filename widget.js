@@ -17,7 +17,7 @@ const C = {
 function lum(h) { const n = parseInt(String(h || '').replace('#', ''), 16); return isNaN(n) ? 0 : (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 }
 function mix(a, b, t) { const p = h => { const n = parseInt(String(h || '').replace('#', ''), 16); return [n >> 16, (n >> 8) & 255, n & 255] }, x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join('') }
 // los pasteles de la app, un punto más marcados para que se distingan en el widget; un color elegido a mano se usa tal cual
-function main(c) { try { return lum(c.bg) > 0.85 ? mix(c.bg, c.fg, 0.3) : c.bg } catch (e) { return c.fg } }
+function main(c) { try { const m = /(^|,)\s*wc:(#[0-9a-f]{6})/i.exec(String(c.palabras_clave || '')); if (m) return m[2]; return lum(c.bg) > 0.85 ? mix(c.bg, c.fg, 0.3) : c.bg } catch (e) { return c.fg } }
 const OTRO = { id: 'otro', nombre: 'Otros', fg: '#4A4D55', bg: '#E6E3DC' }
 const DL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
