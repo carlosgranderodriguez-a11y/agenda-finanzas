@@ -290,6 +290,7 @@ async function run() {
     const t = txt(w, e.message, 11, C.muted); t.lineLimit = 4
   }
   Script.setWidget(w)
+  await autoUpdate()   // también se pone al día sola desde la pantalla de inicio
   Script.complete()
 }
 await run()
