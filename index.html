@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v29';
+const VERSION = 'v30';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -852,6 +852,9 @@ const METODOS = [['bizum', 'Bizum'], ['efectivo', 'En mano'], ['transferencia', 
 const metNom = m => (METODOS.find(x => x[0] === m) || [0, 'Sin indicar'])[1];
 const metChips = (cur, fn) => `<div class="opt" style="flex-wrap:wrap">${METODOS.map(([v, l]) => `<button type="button" class="${cur === v ? 'on' : ''}" onclick="${fn}('${v}')">${l}</button>`).join('')}</div>`;
 const noFacturar = i => (clienteOf(i.cliente_id).factura || 'si') === 'no';
+// sin cobrar: «te deben» si la fecha ya ha llegado; «previsto» si aún no
+const previsto = i => !cobrado(i) && (i.fecha || '') > todayStr();
+const debe = i => !cobrado(i) && !previsto(i);
 const porFacturar = i => !facturado(i) && !noFacturar(i);
 function monthAdd(ym, n) { const d = parseD(ym + '-01'); d.setMonth(d.getMonth() + n); return ymd(d).slice(0, 7); }
 function monthStats(ym) {
@@ -860,7 +863,7 @@ function monthStats(ym) {
   const ingresos = I.reduce((s, i) => s + num(i.importe), 0);
   const cob = I.filter(cobrado).reduce((s, i) => s + num(i.importe), 0);
   const gastos = G.reduce((s, g) => s + num(g.importe), 0);
-  return { I, G, ingresos, cobrado: cob, gastos, neto: ingresos - gastos };
+  return { I, G, ingresos, cobrado: cob, gastos, neto: ingresos - gastos, netoReal: cob - gastos, debe: sumI(I.filter(debe)), previsto: sumI(I.filter(previsto)) };
 }
 function finLoading() { return !S.fin ? `<div class="empty"><span class="spin"></span> Cargando finanzas…</div>` : ''; }
 const sumI = arr => arr.reduce((s, i) => s + num(i.importe), 0);
@@ -885,7 +888,9 @@ function viewResumen() {
   const ym = S.month, md = parseD(ym + '-01');
   const st = monthStats(ym), prev = monthStats(monthAdd(ym, -1));
   const diff = prev.ingresos ? Math.round((st.ingresos / prev.ingresos - 1) * 100) : null;
-  const pend = ING().filter(i => !cobrado(i)), sinFac = ING().filter(porFacturar);
+  const pend = ING().filter(debe).sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')), prevs = ING().filter(previsto).sort((a, b) => (a.fecha || '').localeCompare(b.fecha || ''));
+  const fl = i => { const c = clienteOf(i.cliente_id), d = parseD(i.fecha); return `<button class="row between" style="border:0;background:none;padding:3px 0;font-size:14px;text-align:left;gap:8px;width:100%" onclick="sheetVerIngreso('${i.id}')"><span class="grow" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c ? c.nombre : '—')} · ${esc(i.concepto || '')} <span class="muted" style="font-size:12px">${d.getDate()} ${MES_C[d.getMonth()]}</span></span><b>${eur(num(i.importe))}</b></button>`; };
+  const lista = (L, tit, col, f) => L.length ? `<div class="card" style="gap:4px;display:flex;flex-direction:column"><b style="font-size:13px;color:${col}">${tit}</b>${L.slice(0, 4).map(fl).join('')}${L.length > 4 ? `<button class="row" style="border:0;background:none;padding:4px 0;font-size:13px;font-weight:700;color:${col}" onclick="S.filter='${f}';S.tipoF='';S.q='';go('ingresos')">Ver los ${L.length} ›</button>` : ''}</div>` : '';
   const months = []; for (let i = 11; i >= 0; i--) months.push(monthAdd(ym, -i));
   const vals = months.map(m => monthStats(m).ingresos); const max = Math.max(...vals, 1);
   const avg = vals.reduce((a, b) => a + b, 0) / (vals.filter(v => v > 0).length || 1);
@@ -903,19 +908,21 @@ function viewResumen() {
     <div class="hero">
       <div class="row between" style="margin-bottom:-6px"><span></span>${eyeBtn(true)}</div>
       <div class="row between" style="align-items:flex-end">
-        <div class="col"><span class="row" style="gap:6px;font-size:12px;color:var(--dmuted);font-weight:600">Ingresos del mes</span><span class="big" style="font-size:40px">${eur0(st.ingresos)}</span></div>
-        ${diff !== null ? `<span style="background:${diff >= 0 ? '#1E4B3C' : '#4B231E'};color:${diff >= 0 ? '#7FD1AE' : '#F2A493'};border-radius:10px;padding:4px 8px;font-size:12px;font-weight:700">${diff >= 0 ? '+' : ''}${diff}% vs ${MES_C[parseD(monthAdd(ym, -1) + '-01').getMonth()]}</span>` : ''}
+        <div class="col"><span class="row" style="gap:6px;font-size:12px;color:var(--dmuted);font-weight:600">Cobrado este mes (dinero real)</span><span class="big" style="font-size:40px">${eur0(st.cobrado)}</span></div>
       </div>
-      <div class="grid3">
-        <div class="mini"><span>Ya cobrado</span><span style="color:#7FD1AE">${eur0(st.cobrado)}</span></div>
+      <div class="grid2">
         <button class="mini" style="border:0;color:#fff;text-align:left" onclick="go('gastos')"><span>Gastos</span><span>${eur0(st.gastos)}</span></button>
-        <div class="mini"><span>Neto</span><span>${eur0(st.neto)}</span></div>
+        <div class="mini"><span>Neto real</span><span style="color:#7FD1AE">${eur0(st.netoReal)}</span></div>
       </div>
+      ${st.ingresos > 0 && (st.debe || st.previsto) ? `<div class="col" style="gap:6px"><div style="height:10px;border-radius:5px;display:flex;overflow:hidden;background:#24262C"><i style="width:${st.cobrado / st.ingresos * 100}%;background:#7FD1AE"></i><i style="width:${st.debe / st.ingresos * 100}%;background:#F0B95B"></i><i style="width:${st.previsto / st.ingresos * 100}%;background:#8C97F0"></i></div>
+        <span style="font-size:12px;color:var(--dmuted)">${st.previsto ? 'Si se cumple todo' : 'Cuando te paguen lo pendiente'}, el mes cerrará en <b style="color:#fff">${eur0(st.ingresos)}</b>${diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff}% vs ${MES_C[parseD(monthAdd(ym, -1) + '-01').getMonth()]})` : ''}</span></div>` : ''}
     </div>
     <div class="grid2">
-      <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span></button>
-      <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='sinfactura';go('ingresos')"><span style="color:var(--accent)">Sin facturar · ${sinFac.length}</span><span>${eur0(sumI(sinFac))}</span></button>
+      <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span><span style="font-size:11px;font-weight:500;color:var(--muted)">Ya hecho y sin pagar</span></button>
+      <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='previstos';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--accent)">Previsto · ${prevs.length}</span><span>${eur0(sumI(prevs))}</span><span style="font-size:11px;font-weight:500;color:var(--muted)">Aún no ha llegado la fecha</span></button>
     </div>
+    ${lista(pend, 'Te deben', 'var(--warn)', 'pendientes')}
+    ${lista(prevs, 'Previsto (no cuenta como deuda)', 'var(--accent)', 'previstos')}
     ${(() => { const q = cajaMes(S.month); const ms = METODOS.filter(([m]) => m !== 'tarjeta' || q.porM.tarjeta || q.gM.tarjeta); const sin = (q.porM[''] || 0) + (q.gM[''] || 0);
       return `<button class="card stack" style="border:0;text-align:left;width:100%;gap:10px" onclick="go('caja')">
       <div class="row between"><b style="font-size:14px">Cobros y gastos por método · ${MES_C[parseD(S.month + '-01').getMonth()]}</b><span style="font-size:18px">›</span></div>
@@ -953,7 +960,7 @@ function viewResumen() {
 function viewIngresos() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const all = [...ING()].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
-  const filt = { todos: () => true, pendientes: i => !cobrado(i), sinfactura: porFacturar, cobrados: cobrado }[S.filter] || (() => true);
+  const filt = { todos: () => true, pendientes: debe, previstos: previsto, sinfactura: porFacturar, cobrados: cobrado }[S.filter] || (() => true);
   const q = (S.q || '').toLowerCase();
   const tf = S.tipoF || '';
   const list = all.filter(filt).filter(i => !tf || lineasOf(i).some(l => l.tipo === tf)).filter(i => !q || (clienteOf(i.cliente_id).nombre + ' ' + i.concepto + ' ' + (i.num_factura || '') + ' ' + lineasOf(i).map(l => l.tipo + ' ' + l.detalle).join(' ')).toLowerCase().includes(q));
@@ -961,7 +968,7 @@ function viewIngresos() {
   const tchip = (k, t) => `<button class="chip ${tf === k ? 'on' : ''}" style="${tf === k ? '' : k ? `background:${tipoColor(k)}1A;color:${tipoColor(k)}` : ''}" onclick="S.tipoF='${esc(k).replace(/'/g, '')}';render()">${esc(t)}</button>`;
   const chip = (k, t) => `<button class="chip ${S.filter === k ? 'on' : ''}" onclick="S.filter='${k}';render()">${t}</button>`;
   const shown = list.slice(0, S.showAll ? 9999 : 50);
-  const pend = all.filter(i => !cobrado(i)), sinFac = all.filter(porFacturar);
+  const pend = all.filter(debe), sinFac = all.filter(porFacturar);
   return `<div class="stack">
     ${demoBanner()}
     <div class="row between" style="align-items:flex-end"><h1 style="font-size:30px" class="row">Ingresos ${eyeBtn()}</h1><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetPuntual({})">+ Entreno puntual</button><span class="muted" style="font-size:13px">${list.length} · ${eur0(sumP(list))} ${S.loadingFin ? '<span class="spin"></span>' : ''}</span></div>
@@ -969,7 +976,7 @@ function viewIngresos() {
       <div class="stat" style="background:var(--warnbg)"><span style="color:var(--warn)">Te deben</span><span>${eur0(sumI(pend))}</span></div>
       <div class="stat" style="background:#DCE1F6"><span style="color:var(--accent)">Sin facturar</span><span>${eur0(sumI(sinFac))}</span></div>
     </div>
-    <div class="chips">${chip('todos', 'Todos')}${chip('pendientes', 'Te deben')}${chip('sinfactura', 'Sin facturar')}${chip('cobrados', 'Cobrados')}</div>
+    <div class="chips">${chip('todos', 'Todos')}${chip('pendientes', 'Te deben')}${chip('previstos', 'Previsto')}${chip('sinfactura', 'Sin facturar')}${chip('cobrados', 'Cobrados')}</div>
     <div class="chips">${tchip('', 'Todos los conceptos')}${tiposList().map(t => tchip(t, t)).join('')}</div>
     ${tf ? `<button class="btn" style="height:42px" onclick="S.tipoSel='${esc(tf).replace(/'/g, '')}';go('concepto')">Ver ${esc(tf)} por cliente ›</button>` : ''}
     <input class="in" type="search" placeholder="Buscar cliente o concepto" aria-label="Buscar" value="${esc(S.q || '')}" oninput="S.q=this.value;clearTimeout(S._qt);S._qt=setTimeout(()=>{render();const i=document.querySelector('input[type=search]');i.focus();i.setSelectionRange(i.value.length,i.value.length)},250)">
@@ -1099,9 +1106,11 @@ function viewConcepto() {
     ${total ? `<div class="catbar">${rows.map(r => `<span style="flex:${r.v};background:${r.c.color || '#6B6E75'}"></span>`).join('')}</div>` : ''}
   </div>`;
 }
+// lo apuntado «por adelantado» (sin cobrar) vence a fin de mes: hasta entonces es «previsto», no deuda
+function finDeMes() { const [y, m] = S.month.split('-').map(Number); return S.month + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'); }
 function fechaDelMes() { return S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01'; }
 function nuevoIngresoDe(cid, tipo, imp) {
-  return { id: uid(), fecha: fechaDelMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: '' }]) };
+  return { id: uid(), fecha: finDeMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: '' }]) };
 }
 async function apuntarUno(cid) {
   const t = S.tipoSel || tiposList()[0]; const v = lastPart(cid, t) || num(clienteOf(cid).tarifa);
@@ -1414,7 +1423,7 @@ function viewClientes() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const yr = todayStr().slice(0, 4);
   const tot = id => sumI(ING().filter(i => i.cliente_id === id && (i.fecha || '').startsWith(yr)));
-  const pend = id => sumI(ING().filter(i => i.cliente_id === id && !cobrado(i)));
+  const pend = id => sumI(ING().filter(i => i.cliente_id === id && debe(i)));
   const list = [...S.fin.clientes].sort((a, b) => tot(b.id) - tot(a.id));
   return `<div class="stack">
     ${demoBanner()}
@@ -1748,7 +1757,7 @@ function viewCaja() {
   const data = months.map(m => cajaMes(m)), max = Math.max(1, ...data.map(d => Math.max(d.entra, d.sale)));
   const mets = [...METODOS.map(x => x[0]), ''];
   const efectivo = (q.porM.efectivo || 0) - (q.gM.efectivo || 0);
-  const pend = ING().filter(i => !cobrado(i));
+  const pend = ING().filter(debe);
   return `<div class="stack">
     ${demoBanner()}
     <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:26px" class="grow">Flujo de caja</h1>${eyeBtn()}</div>
@@ -1934,7 +1943,7 @@ function sheetFicha(cid) {
   if (S.bonoEv === null || !S.bonoRange) loadBonoEv();
   const c = clienteOf(cid), m = metaOf(cid), st = estadoBono(cid);
   const nb = num(m.nbono) || 4, pb = num(m.pbono) || 0, ps = num(m.psuelta) || 0;
-  const pend = sumI(ING().filter(i => i.cliente_id === cid && !cobrado(i)));
+  const pend = sumI(ING().filter(i => i.cliente_id === cid && debe(i)));
   const a = st && st.activo;
   const fmtS = s => { const d = parseD(s.start); return DL[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MES_C[d.getMonth()] + ' · ' + hm(s.start); };
   openSheet(`<div class="stack">
