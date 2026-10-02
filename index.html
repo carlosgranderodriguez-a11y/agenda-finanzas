@@ -101,9 +101,10 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .wg{display:flex;gap:0}
 .wg .hours{width:30px;position:relative;font-size:10px;color:var(--muted)}
 .wg .days{flex:1;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
-.wg .day{position:relative;border-radius:10px;background:var(--soft);border:0;padding:0}
+.wg .day{position:relative;border-radius:10px;background:var(--soft);border:0;padding:0;cursor:pointer}
 .wg .day.today{background:var(--card)}
-.wg .blk{position:absolute;left:3px;right:3px;border-radius:7px;display:flex;justify-content:center;padding-top:4px}
+.wg .blk{position:absolute;border:0;border-radius:6px;padding:3px 2px 0;overflow:hidden;text-align:left;display:flex;align-items:flex-start}
+.wg .blk .bt{display:-webkit-box;-webkit-box-orient:vertical;overflow:hidden;font-size:9px;line-height:10px;font-weight:700;word-break:break-word;hyphens:auto}
 .wg .blk i{width:6px;height:6px;border-radius:3px}
 .catbar{display:flex;height:12px;border-radius:6px;overflow:hidden;gap:2px}
 .legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px;color:#3A3C42}
@@ -161,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v26';
+const VERSION = 'v27';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -791,9 +792,17 @@ async function crearEvento(ev) {
 }
 
 /* =================== AGENDA: SEMANA =================== */
+// texto corto para la vista de semana: quita «Entrenamiento/Entreno…» y deja el nombre; si no cabe, iniciales
+function siglaEv(t, muyEstrecho) {
+  const stop = ['entrenamiento', 'entreno', 'entrenar', 'sesion', 'sesión', 'clase', 'de', 'del', 'con', 'la', 'el', 'los', 'las', 'y', 'a', 'en', 'para'];
+  const w = String(t || '').split(/[\s·\-|,:()]+/).filter(x => x && !stop.includes(x.toLowerCase()));
+  const base = w.length ? w : String(t || '').split(/\s+/).filter(Boolean);
+  if (muyEstrecho) return base.slice(0, 3).map(x => x[0].toUpperCase()).join('');
+  return base.join(' ');
+}
 function viewSemana() {
   const mon = mondayOf(S.day), evs = weekEvents(mon).filter(e => !e.allDay);
-  const PX = 32; let h0 = 7, h1 = 22;
+  const PX = 44; let h0 = 7, h1 = 22;
   evs.forEach(e => { h0 = Math.min(h0, Math.floor(hoursOf(e.start))); h1 = Math.max(h1, Math.min(24, Math.ceil(hoursOf(e.end) || 24))); });
   const byCat = {};
   evs.forEach(e => { byCat[e.cat] = (byCat[e.cat] || 0) + (hoursOf(e.end) - hoursOf(e.start)); });
@@ -807,8 +816,10 @@ function viewSemana() {
   let hours = ''; for (let h = h0; h <= h1; h += 2) hours += `<span style="position:absolute;top:${(h - h0) * PX - 6}px">${h}h</span>`;
   const days = [0, 1, 2, 3, 4, 5, 6].map(i => {
     const di = addDays(mon, i);
-    const blocks = evs.filter(e => e.start.slice(0, 10) === di).map(e => { const c = catOf(e.cat); const s = hoursOf(e.start), en = hoursOf(e.end) || 24; return `<span class="blk" style="top:${(s - h0) * PX + 1}px;height:${Math.max((en - s) * PX - 2, 8)}px;background:${c.bg}"><i style="background:${c.fg}"></i></span>`; }).join('');
-    return `<button class="day ${di === todayStr() ? 'today' : ''}" style="height:${H}px" aria-label="${DIAS[i]} ${parseD(di).getDate()}" onclick="S.day='${di}';go('hoy')">${blocks}</button>`;
+    const blocks = layoutCols(evs.filter(e => e.start.slice(0, 10) === di)).map(it => {
+      const e = it.e, c = catOf(e.cat), hgt = Math.max((it.en - it.s) * PX - 2, 12), w = 100 / it.ncol;
+      return `<button class="blk" title="${esc(e.title)}" style="top:${(it.s - h0) * PX + 1}px;height:${hgt}px;left:calc(${it.col * w}% + 1px);width:calc(${w}% - 2px);right:auto;background:${c.bg};color:${c.fg}" onclick="event.stopPropagation();sheetDetalle('${esc(e.id)}','${e.start}')"><span class="bt" style="-webkit-line-clamp:${Math.max(1, Math.floor((hgt - 4) / 10))}">${esc(siglaEv(e.title, it.ncol > 1))}</span></button>`; }).join('');
+    return `<div class="day ${di === todayStr() ? 'today' : ''}" style="height:${H}px" role="button" tabindex="0" aria-label="${DIAS[i]} ${parseD(di).getDate()}" onclick="S.day='${di}';go('hoy')">${blocks}</div>`;
   }).join('');
   return `<div class="stack">
     ${demoBanner()}
