@@ -13,6 +13,8 @@ const C = {
   muted: new Color('#5C5F66'), dmuted: new Color('#A9ACB4'), now: new Color('#D9412B'),
   green: new Color('#7FD1AE'), amber: new Color('#F0C866'), track: new Color('#E6E2D9')
 }
+// tono suave del color del área (mezcla con blanco) para los bloques
+function soft(hex) { const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '')); if (!m) return hex; const n = parseInt(m[1], 16), f = v => Math.round(v * 0.58 + 255 * 0.42).toString(16).padStart(2, '0'); return '#' + f(n >> 16) + f((n >> 8) & 255) + f(n & 255) }
 const OTRO = { id: 'otro', nombre: 'Otros', fg: '#4A4D55', bg: '#E6E3DC' }
 const DL = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
 const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -76,7 +78,7 @@ function dayBar(d, events, w, h) {
   events.forEach(e => {
     const a = Math.max(H0, hrs(e.start)), b = Math.min(H1, hrs(e.end) || 24)
     if (b <= a) return
-    ctx.setFillColor(new Color(cat(d, e.cat).fg)); ctx.fillRect(new Rect(sx(a), 0, Math.max(sx(b) - sx(a), 2), h))
+    ctx.setFillColor(new Color(soft(cat(d, e.cat).fg))); ctx.fillRect(new Rect(sx(a), 0, Math.max(sx(b) - sx(a), 2), h))
   })
   const now = hrs(d.now)
   if (now > H0 && now < H1) { ctx.setFillColor(C.now); ctx.fillRect(new Rect(sx(now) - 1, 0, 2.5, h)) }
@@ -97,7 +99,7 @@ function weekBars(d, w, rowH) {
       const a = Math.max(H0, ah + am / 60), b = Math.min(H1, (bh + bm / 60) || 24)
       if (b <= a) return
       const r = new Path(); r.addRoundedRect(new Rect(sx(a), y, Math.max(sx(b) - sx(a), 3), rowH), 4, 4); ctx.addPath(r)
-      ctx.setFillColor(new Color(cat(d, e.cat).fg)); ctx.fillPath()
+      ctx.setFillColor(new Color(soft(cat(d, e.cat).fg))); ctx.fillPath()
     })
   })
   return ctx.getImage()
@@ -184,10 +186,10 @@ function inAppHTML(d) {
   const week = d.days.map((evs, i) => `<div class="wr"><b style="color:${i === todayIdx ? '#D9412B' : '#17181C'}">${DL[i]}</b><div class="tr">${evs.map(e => {
     const [ah, am] = e.s.split(':').map(Number), [bh, bm] = e.e.split(':').map(Number)
     const a = ah + am / 60, b = (bh + bm / 60) || 24
-    return `<i style="left:${pct(a)}%;width:${Math.max(pct(b) - pct(a), 1)}%;background:${cat(d, e.cat).fg}"></i>`
+    return `<i style="left:${pct(a)}%;width:${Math.max(pct(b) - pct(a), 1)}%;background:${soft(cat(d, e.cat).fg)}"></i>`
   }).join('')}</div></div>`).join('')
   const wh = d.weekHours || {}
-  const leg = Object.keys(wh).map(k => `<span><i style="background:${cat(d, k).fg}"></i>${esc(cat(d, k).nombre)} <b>${hstr(wh[k])} h</b></span>`).join('')
+  const leg = Object.keys(wh).map(k => `<span><i style="background:${soft(cat(d, k).fg)}"></i>${esc(cat(d, k).nombre)} <b>${hstr(wh[k])} h</b></span>`).join('')
   const work = d.today.filter(e => e.cat !== 'per' && e.cat !== 'otro').reduce((s, e) => s + (hrs(e.end) - hrs(e.start)), 0)
   return `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>
   body{margin:0;background:#F4F2ED;color:#17181C;font:15px -apple-system,system-ui,sans-serif;padding:max(20px,env(safe-area-inset-top)) 16px 40px}
