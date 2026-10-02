@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v32';
+const VERSION = 'v33';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1558,7 +1558,7 @@ function viewAjustes() {
     <div class="card stack" style="gap:8px">
       <b>Colores del widget</b>
       <span class="muted" style="font-size:13px">Elige el color de cada área solo para el widget. La agenda de la app no cambia.</span>
-      <div class="col" style="gap:6px">${S.cats.map(k => `<div class="row" style="gap:10px;background:var(--bg);border-radius:12px;padding:6px 10px"><input type="color" aria-label="Color de ${esc(k.nombre)} en el widget" value="${widgetColor(k)}" onchange="setWidgetColor('${k.id}', this.value)" style="width:44px;height:34px;border:0;background:none;padding:0"><span class="grow" style="font-weight:700;font-size:14px">${esc(k.nombre)}</span>${wcOf(k) ? `<button class="chip" style="background:var(--card)" onclick="setWidgetColor('${k.id}', '')">Quitar</button>` : '<span class="muted" style="font-size:12px">el del área</span>'}</div>`).join('')}</div>
+      <div class="col" style="gap:6px">${S.cats.map(k => `<button class="row" style="gap:10px;background:var(--bg);border:0;border-radius:12px;padding:8px 10px;text-align:left;width:100%" onclick="sheetWColor('${k.id}')"><i style="width:34px;height:28px;border-radius:8px;background:${widgetColor(k)};flex:none"></i><span class="grow" style="font-weight:700;font-size:14px">${esc(k.nombre)}</span><span class="muted" style="font-size:12px">${wcOf(k) ? 'propio' : 'el del área'} ›</span></button>`).join('')}</div>
       <span class="muted" style="font-size:12px">El widget tarda unos minutos en reflejar el cambio.</span>
     </div>
     <div class="card stack" style="gap:8px">
@@ -2079,8 +2079,21 @@ function widgetColor(k) { const w = wcOf(k); if (w) return w; try { if (lum(k.bg
 async function setWidgetColor(id, hex) {
   const k = S.cats.find(x => x.id === id); if (!k) return;
   const kw = kwClean(k.palabras_clave), o = Object.assign({}, k, { palabras_clave: hex ? (kw ? kw + ', ' : '') + 'wc:' + hex : kw });
-  try { const r = await api('saveCategoria', { data: o }); Object.assign(k, o, r); LS.set('af_cats', S.cats); toast(hex ? 'Color del widget guardado' : 'Vuelve al color del área'); render(); }
+  try { const r = await api('saveCategoria', { data: o }); Object.assign(k, o, r); LS.set('af_cats', S.cats); toast(hex ? 'Color del widget guardado' : 'Vuelve al color del área'); closeSheet(); render(); }
   catch (e) { toast(e.message); }
+}
+// paleta propia (el selector de color del iPhone se cerraba al repintar la pantalla)
+const SWATCHES = ['#F6C6D0','#F9D3B4','#F7E7A6','#CFE8B9','#B5E3D8','#BBD9F2','#D5C8F0','#DDDAD3',
+  '#EE9DB0','#F4B183','#EFD36A','#A6D48A','#84CDBB','#8EBEE8','#B3A0E3','#B9B5AC',
+  '#DB6F8B','#E58A4E','#DDB63A','#74B85C','#4FAE99','#5B98D6','#8C74CF','#8D8A83',
+  '#9C2F5B','#A8471A','#8A6A00','#3F7A2C','#1B5E48','#2F3F9E','#5E3F82','#3B3D44'];
+function swatchGrid(sel, fn) { return `<div style="display:grid;grid-template-columns:repeat(8,1fr);gap:6px">${SWATCHES.map(c => `<button type="button" aria-label="Color ${c}" onclick="${fn}('${c}')" style="aspect-ratio:1;border-radius:10px;background:${c};border:${String(sel).toLowerCase() === c.toLowerCase() ? '3px solid var(--ink)' : '1px solid #0001'};padding:0"></button>`).join('')}</div>`; }
+function sheetWColor(id) {
+  const k = S.cats.find(x => x.id === id); if (!k) return;
+  openSheet(`<div class="stack"><h1 style="font-size:22px">Color de ${esc(k.nombre)} en el widget</h1>
+    ${swatchGrid(widgetColor(k), `pickW_${''}`).replace(/pickW_\('/g, `setWidgetColor('${id}','`)}
+    ${wcOf(k) ? `<button class="btn" style="background:var(--bg)" onclick="setWidgetColor('${id}','')">Volver al color del área</button>` : ''}
+  </div>`);
 }
 function areaMain(k) { return lum(k.bg) > 0.85 ? k.fg : k.bg; }
 function pickArea(hex) {
@@ -2103,7 +2116,7 @@ function renderArea() {
     <h1 style="font-size:24px">${AR.id ? 'Editar área' : 'Nueva área'}</h1>
     <label class="f">Nombre<input class="in" required value="${esc(AR.nombre)}" oninput="AR.nombre=this.value" placeholder="Ej. Best Athletes"></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${AREA_PALETTE.map(p => `<button type="button" aria-label="Color ${p[0]}" onclick="AR.fg='${p[0]}';AR.bg='${p[1]}';renderArea()" style="width:40px;height:40px;border-radius:12px;background:${p[1]};border:${AR.fg === p[0] ? '3px solid ' + p[0] : '0'};display:flex;align-items:center;justify-content:center"><i style="width:14px;height:14px;border-radius:7px;background:${p[0]}"></i></button>`).join('')}</div>
-      <label class="row" style="gap:10px;font-size:14px;font-weight:600;background:var(--bg);border-radius:12px;padding:8px 12px"><input type="color" value="${/^#[0-9a-f]{6}$/i.test(areaMain(AR)) ? areaMain(AR) : '#888888'}" onchange="pickArea(this.value)" style="width:44px;height:36px;border:0;background:none;padding:0"> Elegir mi propio color</label></div>
+      <span class="eyebrow" style="margin-top:4px">O elige otro</span>${swatchGrid(areaMain(AR), 'pickArea')}</div>
     <div style="background:${AR.bg};color:${AR.fg};border-radius:12px;padding:8px 12px;font-weight:700;font-size:13px">Así se verá: ${esc(AR.nombre || 'Nueva área')} · 10:00</div>
     <label class="f">Palabras del título que lo activan (opcional)<input class="in" value="${esc(AR.palabras_clave)}" oninput="AR.palabras_clave=this.value" placeholder="best athletes, ba"></label>
     ${cls.length ? `<span class="muted" style="font-size:13px">Clientes en esta área: ${cls.map(c => esc(c.nombre)).join(', ')}</span>` : `<span class="muted" style="font-size:13px">Asigna clientes a esta área desde su ficha (Finanzas → Clientes).</span>`}
