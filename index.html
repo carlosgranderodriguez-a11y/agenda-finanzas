@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v27';
+const VERSION = 'v28';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1410,6 +1410,7 @@ function renderClienteSheet() {
       <label class="f">Precio bono €<input class="in" inputmode="decimal" value="${esc(CC._pbono)}" oninput="CC._pbono=this.value"></label>
       <label class="f">Suelta €<input class="in" inputmode="decimal" value="${esc(CC._psuelta)}" oninput="CC._psuelta=this.value"></label>
     </div>
+    ${tarifaChips('ccTar', '').replace('Tarifas</span>', 'Precio de la sesión suelta: elige tarifa</span>')}
     <div class="col" style="gap:6px"><span class="eyebrow">Área en la agenda</span><div class="chips" style="flex-wrap:wrap">
       <button type="button" class="chip ${!CC._area ? 'on' : ''}" style="${!CC._area ? '' : 'background:var(--bg)'}" onclick="CC._area='';renderClienteSheet()">Ninguna</button>
       ${S.cats.map(k => `<button type="button" class="chip ${CC._area === k.id ? 'on' : ''}" style="${CC._area === k.id ? '' : `background:${k.bg};color:${k.fg}`}" onclick="CC._area='${k.id}';renderClienteSheet()">${esc(k.nombre)}</button>`).join('')}
@@ -1488,6 +1489,7 @@ function viewAjustes() {
       <div class="legend">${tiposList().map(t => `<span><i style="background:${tipoColor(t)}"></i>${esc(t)}</span>`).join('')}</div>
       <button class="btn dark" onclick="guardarTipos()">Guardar conceptos</button>
     </div>` : ''}
+    ${S.fin ? tfCard() : ''}
     ${S.fin ? `<div class="card stack">
       <b>Agenda</b>
       <label class="f">Calendarios a mostrar<input class="in" style="background:var(--bg)" data-k="calendarios" value="${esc(cfg.calendarios)}" placeholder="Vacío = todos · o nombres separados por comas"></label>
@@ -1742,6 +1744,35 @@ function viewCaja() {
   </div>`;
 }
 
+/* =================== TARIFAS =================== */
+// Lista de precios propia (Ajustes): Config 'tarifas' = JSON [{n:nombre, p:precio}]
+let TF = null;
+function tarifas() { try { const a = JSON.parse((S.fin && S.fin.config && S.fin.config.tarifas) || '[]'); return Array.isArray(a) ? a.filter(t => t && t.n) : []; } catch (e) { return []; } }
+function tarifaChips(fn, sel) {
+  const L = tarifas(); if (!L.length) return '';
+  return `<div class="col" style="gap:6px"><span class="eyebrow">Tarifas</span><div class="chips" style="flex-wrap:wrap">${L.map((t, i) => `<button type="button" class="chip ${sel === t.n ? 'on' : ''}" style="${sel === t.n ? '' : 'background:var(--bg)'}" onclick="${fn}(${i})">${esc(t.n)} · ${eurRaw(num(t.p))}</button>`).join('')}</div></div>`;
+}
+function tfCard() {
+  if (!TF) TF = tarifas().map(t => ({ n: t.n, p: String(t.p) }));
+  return `<div class="card stack" style="gap:8px">
+      <b>Tarifas (tus precios)</b>
+      <span class="muted" style="font-size:13px">Pon el nombre y el precio que quieras. Luego las eliges con un toque al apuntar un entreno, un bono o en la ficha del cliente.</span>
+      ${TF.map((t, i) => `<div class="row" style="gap:6px"><input class="in grow" style="background:var(--bg);min-width:0" value="${esc(t.n)}" placeholder="Ej. Entrenamiento a domicilio" oninput="TF[${i}].n=this.value"><input class="in" style="background:var(--bg);width:84px;font-weight:800" inputmode="decimal" value="${esc(t.p)}" placeholder="€" oninput="TF[${i}].p=this.value"><button type="button" aria-label="Quitar tarifa" style="border:0;background:var(--bg);border-radius:12px;width:40px;height:44px;font-size:16px;color:var(--bad)" onclick="TF.splice(${i},1);render()">✕</button></div>`).join('')}
+      <button class="btn" style="background:var(--bg)" onclick="TF.push({n:'',p:''});render()">+ Añadir tarifa</button>
+      <button class="btn dark" onclick="guardarTarifas()">Guardar tarifas</button>
+    </div>`;
+}
+async function guardarTarifas() {
+  const L = (TF || []).map(t => ({ n: (t.n || '').trim(), p: num(t.p) })).filter(t => t.n);
+  if (L.some(t => !t.p)) { toast('Pon el precio de cada tarifa'); return; }
+  const v = JSON.stringify(L);
+  try { await api('saveConfig', { data: { tarifas: v } }); S.fin.config = Object.assign(S.fin.config || {}, { tarifas: v }); LS.set('af_fin_cache', S.fin); TF = null; toast('Tarifas guardadas'); render(); }
+  catch (e) { toast(e.message); }
+}
+function ptTar(i) { const t = tarifas()[i]; PT.imp = String(t.p); PT.det = t.n; renderPuntual(); }
+function vtTar(i) { const t = tarifas()[i]; VT.imp = String(t.p); VT.det = t.n; renderVenta(); }
+function ccTar(i) { const t = tarifas()[i]; CC._psuelta = String(t.p); renderClienteSheet(); }
+
 /* =================== ENTRENO PUNTUAL =================== */
 // Un entreno puntual es un ingreso con una línea bono:1 (así también cuenta como sesión pagada en los bonos).
 let PT = null;
@@ -1758,6 +1789,7 @@ function renderPuntual() {
     <h1 style="font-size:22px">Entrenamiento puntual</h1>
     <label class="f">Cliente nuevo<input class="in" value="${esc(PT.nuevo)}" placeholder="Nombre (si no lo tienes ya)" oninput="PT.nuevo=this.value;if(this.value)PT.cid=''"></label>
     <div class="chips" style="flex-wrap:wrap">${cs.map(c => `<button type="button" class="chip ${PT.cid === c.id ? 'on' : ''}" style="${PT.cid === c.id ? '' : 'background:var(--bg)'}" onclick="ptCli('${c.id}')">${esc(c.nombre)}</button>`).join('')}</div>
+    ${tarifaChips('ptTar', PT.det)}
     <div class="grid2"><label class="f">Precio (€)<input class="in" inputmode="decimal" required value="${esc(PT.imp)}" oninput="PT.imp=this.value" style="font-weight:800;font-size:18px"></label><label class="f">Fecha<input class="in" type="date" value="${PT.fecha}" onchange="PT.fecha=this.value"></label></div>
     <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${PT.tipo === t ? 'on' : ''}" style="${PT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="PT.tipo='${esc(t).replace(/'/g, '')}';renderPuntual()">${esc(t)}</button>`).join('')}</div></div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span><div class="opt"><button type="button" class="${PT.cobrado === 'si' ? 'on' : ''}" onclick="PT.cobrado='si';renderPuntual()">Sí</button><button type="button" class="${PT.cobrado !== 'si' ? 'on' : ''}" onclick="PT.cobrado='no';renderPuntual()">No, me debe</button></div></div>
@@ -1781,8 +1813,8 @@ async function guardarPuntual(ev) {
       const ex = S.fin.clientes.find(c => c.nombre.toLowerCase() === n.toLowerCase());
       if (ex) cid = ex.id; else { const c = await api('saveCliente', { data: { id: uid(), nombre: n, nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; }
     }
-    const line = { tipo: PT.tipo, importe: imp, detalle: 'Entrenamiento puntual', bono: 1 }; if (PT.ev) line.ev = PT.ev;
-    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
+    const line = { tipo: PT.tipo, importe: imp, detalle: PT.det || 'Entrenamiento puntual', bono: 1 }; if (PT.ev) line.ev = PT.ev;
+    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: PT.det || 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
     const m = metaOf(cid); if (num(m.psuelta) !== imp) await saveMeta(cid, Object.assign({}, m, { psuelta: String(imp) }));
     if (!PT.ev && PT.agenda) {
       const h = PT.hora || '10:00', end = plus1h(h, Math.max(15, num(PT.dur) || 60)), c = clienteOf(cid);
@@ -1925,6 +1957,7 @@ function renderVenta() {
       <label class="f">Sesiones<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value"></label>
       <label class="f">Precio (€)<input class="in" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value" style="font-weight:800;font-size:18px"></label>
     </div>
+    ${tarifaChips('vtTar', VT.det)}
     <label class="f">Fecha<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
     ${num(VT.n) > 1 ? `<label class="f">Sesiones ya hechas de este bono (fuera de la agenda)<input class="in" inputmode="numeric" value="${esc(VT.previas || '')}" oninput="VT.previas=this.value" placeholder="0"></label>` : ''}
     <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${VT.tipo === t ? 'on' : ''}" style="${VT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="VT.tipo='${esc(t).replace(/'/g, '')}';renderVenta()">${esc(t)}</button>`).join('')}</div></div>
@@ -1939,7 +1972,7 @@ async function guardarVenta(ev) {
   ev.preventDefault();
   const n = Math.max(1, Math.round(num(VT.n))), imp = num(VT.imp);
   if (!imp) { toast('Pon el precio'); return; }
-  const det = n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones';
+  const det = (n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones') + (VT.det ? ' · ' + VT.det : '');
   const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', metodo: VT.cobrado === 'si' ? (VT.metodo || '') : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
   try {
