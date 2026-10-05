@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v35';
+const VERSION = 'v36';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1917,7 +1917,8 @@ function puntualEnEvento(e) {
   const i = ingresoDeEvento(e);
   if (i) return `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--okbg)" onclick="sheetVerIngreso('${i.id}')"><span style="font-size:13px;color:var(--ok);font-weight:700">${cobrado(i) ? 'Pagado' : 'Apuntado (te debe)'} · ${eur(num(i.importe))}${i.metodo ? ' · ' + metNom(i.metodo) : ''}</span><span>›</span></button>`;
   const c = S.fin.clientes.find(x => titleHas(e, x));
-  return `<button class="btn" style="background:var(--bg)" onclick="sheetPuntual({cid:'${c ? c.id : ''}',fecha:'${e.start.slice(0, 10)}',ev:'${esc(evKey(e))}'})">Cobrar como entreno puntual</button>`;
+  const nb = c ? (num(metaOf(c.id).nbono) || 4) : 4, pb = c ? num(metaOf(c.id).pbono) : 0;
+  return `${c ? `<button class="btn primary" onclick="sheetVenta('${c.id}',${nb})">Vender bono de ${nb}${pb ? ' · ' + eur(pb) : ''} (pagado o pendiente)</button>` : ''}<button class="btn" style="background:var(--bg)" onclick="sheetPuntual({cid:'${c ? c.id : ''}',fecha:'${e.start.slice(0, 10)}',ev:'${esc(evKey(e))}'})">Cobrar como entreno puntual</button>`;
 }
 
 /* =================== BONOS =================== */
