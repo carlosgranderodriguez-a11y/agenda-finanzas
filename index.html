@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v37';
+const VERSION = 'v38';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2111,7 +2111,12 @@ function bonoEnEvento(e) {
   let txt = '', extra = '';
   if (!excl) {
     const st = estadoBono(c.id);
-    if (st) { const i = st.bonos.findIndex(b => b.ses.some(s => evKey(s) === evKey(e))); if (i >= 0) { const b = st.bonos[i], k = b.previas + b.ses.findIndex(s => evKey(s) === evKey(e)) + 1; txt = `${b.n === 1 ? 'Sesión suelta pagada' : '<b>Sesión ' + k + ' de ' + b.n + '</b> del bono'} · quedan ${st.quedan}`; extra = b.n > 1 ? `<span class="row" style="gap:5px">${Array.from({ length: b.n }, (_, j) => `<i style="width:16px;height:16px;border-radius:8px;display:inline-block;box-sizing:border-box;${j + 1 < k ? 'background:var(--ink)' : j + 1 === k ? 'background:var(--accent);outline:2px solid var(--accent);outline-offset:2px' : 'background:var(--line)'}"></i>`).join('')}</span><span class="muted" style="font-size:12px">Bono de ${b.n} · ${fmtLong(b.fecha)} · ${b.cobrado ? 'pagado' : '<b style="color:var(--warn)">pendiente de pago</b>'}</span>` : ''; } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = '<b style="color:var(--bad)">Sin bono: no está pagada</b>'; else if (S.loadingBonoEv) txt = 'Calculando…'; }
+    if (st) { const i = st.bonos.findIndex(b => b.ses.some(s => evKey(s) === evKey(e))); if (i >= 0) { const b = st.bonos[i], k = b.previas + b.ses.findIndex(s => evKey(s) === evKey(e)) + 1; txt = `${b.n === 1 ? 'Sesión suelta pagada' : '<b>Sesión ' + k + ' de ' + b.n + '</b> del bono'} · quedan ${st.quedan}`; extra = b.n > 1 ? `<span class="row" style="gap:5px">${Array.from({ length: b.n }, (_, j) => `<i style="width:16px;height:16px;border-radius:8px;display:inline-block;box-sizing:border-box;${j + 1 < k ? 'background:var(--ink)' : j + 1 === k ? 'background:var(--accent);outline:2px solid var(--accent);outline-offset:2px' : 'background:var(--line)'}"></i>`).join('')}</span><span class="muted" style="font-size:12px">Bono de ${b.n} · ${fmtLong(b.fecha)} · ${b.cobrado ? 'pagado' : '<b style="color:var(--warn)">pendiente de pago</b>'}</span>` : '';
+      if (b.n > 1) { const fd = d0 => { const d = parseD(d0); return DL[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MES_C[d.getMonth()]; }, now = nowLocal(); let q = 0;
+        const rows = sesManual(b).map(f => `<span style="font-size:13px">${++q}. ${f ? fd(f) : 'sin fecha'} <span class="muted">· apuntada a mano</span></span>`)
+          .concat(b.ses.map(x => { const yo = evKey(x) === evKey(e); return `<span style="font-size:13px;${yo ? 'font-weight:800;color:var(--accent)' : ''}">${++q}. ${fd(x.start)} · ${hm(x.start)}${yo ? ' · esta sesión' : x.start >= now ? ' <span class="muted">· reservada</span>' : ''}</span>`; }));
+        for (let r = q + 1; r <= b.n; r++) rows.push(`<span class="muted" style="font-size:13px">${r}. por hacer</span>`);
+        extra += `<div class="col" style="gap:3px;margin-top:2px"><span class="eyebrow">Sesiones de este bono</span>${rows.join('')}</div>`; } } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = '<b style="color:var(--bad)">Sin bono: no está pagada</b>'; else if (S.loadingBonoEv) txt = 'Calculando…'; }
   }
   return `<div class="card" style="background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:6px"><span style="font-size:13px"><b>${esc(c.nombre)}</b> · ${excl ? 'no se descuenta del bono' : txt || 'bono'}</span>${extra}<button class="chip" style="background:var(--card);align-self:flex-start" onclick="sheetFicha('${c.id}')">Ver bono y sesiones ›</button>
     <label class="row" style="gap:8px;font-size:13px;color:var(--muted)"><input type="checkbox" ${excl ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--dark)" onchange="toggleExcl('${esc(e.id)}','${e.start}',this.checked)"> No descontar (cancelada / no cuenta)</label></div>`;
