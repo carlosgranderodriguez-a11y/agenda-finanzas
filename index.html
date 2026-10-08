@@ -84,6 +84,9 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .tl .hr{position:absolute;left:46px;right:0;border-top:1px solid var(--line)}
 .tl .hl{position:absolute;left:0;width:40px;font-size:11px;color:var(--muted);transform:translateY(-7px)}
 .tl .lane{position:absolute;left:46px;right:0;top:0;bottom:0}
+.ev.drag{z-index:5;box-shadow:0 10px 24px #0003;transform:scale(1.03);opacity:.95}
+.ev.drag::after{content:attr(data-lbl);position:absolute;right:8px;top:6px;background:var(--ink);color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:2px 7px}
+.ev{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:pan-y}
 .ev{position:absolute;border:0;border-radius:12px;padding:6px 10px;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:1px}
 .ev .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
 .ev{justify-content:center}
@@ -162,7 +165,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v39';
+const VERSION = 'v40';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -518,6 +521,7 @@ function renderNav(r) {
 }
 function afterRender(r) {
   if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
+  if (r === 'hoy') dragInit();
   if (r === 'concepto') loadMonthEv(S.month);
   if (r === 'bonos' || r === 'clientes') loadBonoEv();
   if (ROUTES[r] === 'fin') loadFin();
@@ -610,7 +614,7 @@ function timeline(d, evs) {
     const short = hgt < 38 || it.ncol > 2, mid = !short && hgt < 60;
     const nombreArea = it.e.cat === 'otro' ? 'Sin área' : c.nombre;
     const time = hm(it.e.start) + '–' + hm(it.e.end);
-    html += `<button class="ev ${short ? 'short' : ''}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + ${it.col ? 2 : 0}px);width:calc(${w}% - ${it.ncol > 1 ? 2 : 0}px);background:${c.bg};color:${c.fg}" onclick="sheetDetalle('${esc(it.e.id)}','${it.e.start}')">` +
+    html += `<button class="ev ${short ? 'short' : ''}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + ${it.col ? 2 : 0}px);width:calc(${w}% - ${it.ncol > 1 ? 2 : 0}px);background:${c.bg};color:${c.fg}" data-id="${esc(it.e.id)}" data-start="${it.e.start}" onclick="if(Date.now()-(S._noClick||0)>600)sheetDetalle('${esc(it.e.id)}','${it.e.start}')">` +
       (short ? `<span class="t"><i style="display:inline-block;width:7px;height:7px;border-radius:4px;background:${c.fg};margin-right:6px;vertical-align:1px"></i>${esc(it.e.title)}</span>${it.ncol < 3 ? `<span style="font-size:11px;font-weight:600;flex:none;margin-left:6px">${hm(it.e.start)}</span>` : ''}`
              : mid ? `<span class="k" style="font-size:9.5px">${esc(nombreArea)} · ${time}</span><span class="t" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(it.e.title)}</span>`
              : `<span class="k">${esc(nombreArea)} · ${time}</span><span class="t">${esc(it.e.title)}</span>${it.e.location ? `<span class="s">${esc(it.e.location)}</span>` : ''}`) + `</button>`;
@@ -795,6 +799,42 @@ async function guardarEventoBg(data, tmp, mon) {
 }
 function plus1h(v, mins) { const [H, M] = String(v).split(':').map(Number); let t = H * 60 + M + (mins || 60); if (t > 23 * 60 + 59) t = 23 * 60 + 59; return pad(Math.floor(t / 60)) + ':' + pad(t % 60); }
 function finAuto(inp, mins) { const f = inp.form; if (f && f.end && inp.value) f.end.value = plus1h(inp.value, mins || 60); }
+/* ---- arrastrar un evento a otra hora (mantener pulsado y mover) ---- */
+let DRG = null;
+const TL_PX = 46;
+function addMin(iso, m) { const d = parseLocalDT(iso); d.setMinutes(d.getMinutes() + m); return ymd(d) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function parseLocalDT(iso) { const [a, b] = String(iso).split('T'), [y, mo, da] = a.split('-').map(Number), [h, mi] = (b || '0:0').split(':').map(Number); return new Date(y, mo - 1, da, h, mi); }
+function dragLbl() { const e = findEvent(DRG.el.dataset.id, DRG.el.dataset.start); if (!e) return; const m = Math.round((DRG.snap || 0) / TL_PX * 60); DRG.el.dataset.lbl = addMin(e.start, m).slice(11) + '–' + addMin(e.end, m).slice(11); }
+function dragInit() {
+  const tl = document.querySelector('.tl'); if (!tl || tl._dr) return; tl._dr = 1;
+  const start = (el, y) => { if (DRG) clearTimeout(DRG.tm); DRG = { el, y0: y, top0: parseFloat(el.style.top), on: false, snap: 0 };
+    DRG.tm = setTimeout(() => { if (!DRG) return; DRG.on = true; el.classList.add('drag'); if (navigator.vibrate) navigator.vibrate(12); dragLbl(); }, 380); };
+  const move = (y, e) => { if (!DRG) return; const dy = y - DRG.y0;
+    if (!DRG.on) { if (Math.abs(dy) > 8) { clearTimeout(DRG.tm); DRG = null; } return; }
+    if (e && e.cancelable) e.preventDefault();
+    const q = TL_PX / 4, snap = Math.round(dy / q) * q; if (snap !== DRG.snap) { DRG.snap = snap; DRG.el.style.top = (DRG.top0 + snap) + 'px'; dragLbl(); } };
+  const end = () => { if (!DRG) return; clearTimeout(DRG.tm); const d = DRG; DRG = null; if (!d.on) return;
+    d.el.classList.remove('drag'); S._noClick = Date.now(); const m = Math.round(d.snap / TL_PX * 60); if (m) moverEvento(d.el.dataset.id, d.el.dataset.start, m); else render(); };
+  tl.addEventListener('touchstart', e => { const el = e.target.closest('.ev'); if (el && e.touches.length === 1) start(el, e.touches[0].clientY); }, { passive: true });
+  tl.addEventListener('touchmove', e => move(e.touches[0].clientY, e), { passive: false });
+  tl.addEventListener('touchend', end);
+  tl.addEventListener('touchcancel', () => { if (DRG) { clearTimeout(DRG.tm); const on = DRG.on; DRG = null; if (on) render(); } });
+  tl.addEventListener('mousedown', e => { const el = e.target.closest('.ev'); if (el && e.button === 0) start(el, e.clientY); });
+  tl.addEventListener('contextmenu', e => { if (e.target.closest('.ev')) e.preventDefault(); });
+  if (!dragInit._win) { dragInit._win = 1; window.addEventListener('mousemove', e => move(e.clientY, e)); window.addEventListener('mouseup', end); }
+}
+async function moverEvento(id, start, mins) {
+  const e = findEvent(id, start); if (!e) { render(); return; }
+  const ns = addMin(e.start, mins), ne = addMin(e.end, mins);
+  if (ns.slice(0, 10) !== e.start.slice(0, 10) || ne.slice(0, 10) !== e.start.slice(0, 10)) { toast('Solo se puede mover dentro del mismo día'); render(); return; }
+  const old = [e.start, e.end]; e.start = ns + ':00'; e.end = ne + ':00'; render();
+  toast('Evento movido a las ' + ns.slice(11));
+  if (String(id).indexOf('tmp') === 0) return;
+  try {
+    await api('updateEvent', { data: { id, calId: e.calId || '', title: e.title, start: ns, end: ne } });
+    S.monthEv = {}; S.bonoRange = ''; S._manualRefresh = true; loadWeek(mondayOf(ns.slice(0, 10)), true);
+  } catch (err) { e.start = old[0]; e.end = old[1]; render(); toast(/recurrente/i.test(err.message) ? 'Es un evento que se repite: muévelo desde Google Calendar' : 'No se pudo mover: ' + err.message); }
+}
 function tapTimeline(ev, h0) {
   if (ev.target.closest('.ev')) return;
   const tl = ev.currentTarget, y = ev.clientY - tl.getBoundingClientRect().top;
