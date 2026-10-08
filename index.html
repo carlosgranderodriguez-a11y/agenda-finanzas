@@ -165,7 +165,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v40';
+const VERSION = 'v41';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -490,7 +490,7 @@ function sesionesDe(cid, ym) {
 function markStale() { S.monthEv = {}; Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
 
 /* ---------- router ---------- */
-const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', bonos: 'fin', caja: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
+const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', areas: 'fin', bonos: 'fin', caja: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
 function route() { const h = (location.hash || '#hoy').slice(1); return ROUTES[h] ? h : 'hoy'; }
 function go(h) { if (location.hash === '#' + h) render(); else location.hash = h; }
 window.addEventListener('hashchange', () => { if (sheetShown()) closeSheet(true); window.scrollTo(0, 0); render(); });
@@ -508,6 +508,7 @@ function render() {
   else if (r === 'gastos') app.innerHTML = viewGastos();
   else if (r === 'clientes') app.innerHTML = viewClientes();
   else if (r === 'ajustes') app.innerHTML = viewAjustes();
+  else if (r === 'areas') app.innerHTML = viewAreasFin();
   renderNav(r);
   afterRender(r);
 }
@@ -977,6 +978,46 @@ const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).redu
 function byTipo(arr) { const o = {}; arr.forEach(i => lineasOf(i).forEach(l => o[l.tipo] = (o[l.tipo] || 0) + l.importe)); return o; }
 
 /* =================== FINANZAS: RESUMEN =================== */
+/* ---- facturado por área (Fútbol, Best Athletes…) ---- */
+// cada línea de un ingreso va al área cuyo nombre coincide con su concepto; si no, al área del cliente
+function areaDeLinea(l, i) { const t = String(l.tipo || '').trim().toLowerCase(); const k = t && S.cats.find(c => (c.nombre || '').trim().toLowerCase() === t); return k ? k.id : (metaOf(i.cliente_id).area || areaPorNombre(i.cliente_id) || 'otro'); }
+function areaPorNombre(cid) { const c = clienteOf(cid), n = String(c.nombre || '').trim().toLowerCase(), al = String(aliasOf(c) || '').trim().toLowerCase(); if (!n) return ''; const k = S.cats.find(k => String(k.palabras_clave || '').split(',').map(x => x.trim().toLowerCase()).filter(x => x && !/^wc:/.test(x)).some(x => x === n || x === al)); return k ? k.id : ''; }
+function porArea(I) { const o = {}; I.forEach(i => lineasOf(i).forEach(l => { const a = areaDeLinea(l, i); const x = o[a] || (o[a] = { tot: 0, cob: 0, pen: 0, cli: {} }); x.tot += l.importe; if (cobrado(i)) x.cob += l.importe; else x.pen += l.importe; x.cli[i.cliente_id] = (x.cli[i.cliente_id] || 0) + l.importe; })); return o; }
+const areaNom = id => id === 'otro' ? 'Sin área' : catOf(id).nombre;
+const areaCol = id => id === 'otro' ? '#8D8A83' : areaMain(catOf(id));
+function cardAreas(I, ym) {
+  const pa = porArea(I), ks = Object.keys(pa).filter(k => pa[k].tot).sort((a, b) => pa[b].tot - pa[a].tot), tot = ks.reduce((s, k) => s + pa[k].tot, 0);
+  return `<button class="card stack" style="gap:10px;border:0;text-align:left;width:100%" onclick="go('areas')">
+    <div class="row between"><b style="font-size:14px">Por área · ${MES_C[parseD(ym + '-01').getMonth()]}</b><span style="font-size:18px">›</span></div>
+    ${ks.length ? `<div class="catbar">${ks.map(k => `<span style="flex:${pa[k].tot};background:${areaCol(k)}"></span>`).join('')}</div>
+    <div class="col" style="gap:7px">${ks.map(k => `<div class="row" style="font-size:13px;gap:8px"><i style="width:9px;height:9px;border-radius:5px;background:${areaCol(k)};flex:none"></i><span class="grow">${esc(areaNom(k))}</span><span class="muted" style="font-size:12px">${Math.round(pa[k].tot / tot * 100)}%</span><b style="min-width:70px;text-align:right">${eur0(pa[k].tot)}</b></div>`).join('')}</div>`
+    : '<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>'}
+  </button>`;
+}
+function viewAreasFin() {
+  if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
+  const ym = S.month, months = []; for (let i = 11; i >= 0; i--) months.push(monthAdd(ym, -i));
+  const per = months.map(m => porArea(ING().filter(i => (i.fecha || '').slice(0, 7) === m)));
+  const all = {}; per.forEach(p => Object.keys(p).forEach(k => all[k] = (all[k] || 0) + p[k].tot));
+  const ids = Object.keys(all).filter(k => all[k]).sort((a, b) => all[b] - all[a]);
+  if (!S.areaSel || !ids.includes(S.areaSel)) S.areaSel = (S.cats.find(c => /f[uú]tbol/i.test(c.nombre) && ids.includes(c.id)) || {}).id || ids[0] || '';
+  const a = S.areaSel, vals = per.map(p => p[a] || { tot: 0, cob: 0, pen: 0, cli: {} }), max = Math.max(...vals.map(v => v.tot), 1);
+  const yr = ym.slice(0, 4), anual = porArea(ING().filter(i => (i.fecha || '').startsWith(yr)))[a] || { tot: 0 };
+  const cur = vals[11], cl = Object.keys(cur.cli).map(id => ({ c: clienteOf(id), v: cur.cli[id] })).sort((x, y) => y.v - x.v);
+  return `<div class="stack">
+    ${demoBanner()}
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:26px" class="grow">Por área</h1>${eyeBtn()}</div>
+    ${ids.length ? `<div class="chips" style="flex-wrap:wrap">${ids.map(k => `<button class="chip ${k === a ? 'on' : ''}" style="${k === a ? '' : `background:${areaCol(k)}26;color:var(--ink)`}" onclick="S.areaSel='${k}';render()"><i style="width:9px;height:9px;border-radius:5px;background:${areaCol(k)};display:inline-block;margin-right:6px"></i>${esc(areaNom(k))}</button>`).join('')}</div>` : ''}
+    ${a ? `<div class="hero" style="gap:8px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">${esc(areaNom(a))} · ${MESES[parseD(ym + '-01').getMonth()]}</span><span class="big" style="font-size:36px">${eur0(cur.tot)}</span>
+      <div class="grid3"><div class="mini"><span>Cobrado</span><span style="color:#7FD1AE">${eur0(cur.cob)}</span></div><div class="mini"><span>Pendiente</span><span>${eur0(cur.pen)}</span></div><div class="mini"><span>Año ${yr}</span><span>${eur0(anual.tot)}</span></div></div></div>
+    <div class="card stack" style="gap:6px"><b style="font-size:14px">Mes a mes</b>
+      ${vals.map((v, i) => { const m = months[i], d = parseD(m + '-01'); return `<button class="row" style="gap:8px;border:0;background:none;padding:4px 0;text-align:left;width:100%;font-size:13px;${m === ym ? 'font-weight:800' : ''}" onclick="S.month='${m}';render()"><span style="width:58px;flex:none;text-transform:capitalize">${MES_C[d.getMonth()]} ${String(d.getFullYear()).slice(2)}</span><span class="grow" style="height:12px;background:var(--bg);border-radius:6px;overflow:hidden;display:flex"><i style="width:${v.cob / max * 100}%;background:${areaCol(a)}"></i><i style="width:${v.pen / max * 100}%;background:${areaCol(a)};opacity:.4"></i></span><b style="width:72px;text-align:right">${v.tot ? eur0(v.tot) : '—'}</b></button>`; }).reverse().join('')}
+      <span class="muted" style="font-size:11px">Color fuerte: cobrado · claro: pendiente. Toca un mes para verlo.</span></div>
+    ${cl.length ? `<div class="card stack" style="gap:8px"><b style="font-size:14px">Quién paga en ${MES_C[parseD(ym + '-01').getMonth()]}</b>${cl.map(x => `<div class="row" style="font-size:13px;gap:8px"><span class="grow">${esc(x.c.nombre || '—')}</span><b>${eur0(x.v)}</b></div>`).join('')}</div>` : ''}`
+    : '<div class="empty">Aún no hay ingresos para repartir por área.</div>'}
+    <span class="muted" style="font-size:12px">Cada ingreso cuenta en el área de su cliente (Finanzas → Clientes → Área). Si el concepto se llama igual que un área (p. ej. «Best Athletes»), cuenta en esa área.</span>
+  </div>`;
+}
 function viewResumen() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const ym = S.month, md = parseD(ym + '-01');
@@ -1028,6 +1069,7 @@ function viewResumen() {
     </button>`; })()}
     ${(() => { const L = bonosResumen(); if (!L.length) return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos y sesiones sueltas</b><span class="muted" style="font-size:12px">Vende un bono y ve cuántas sesiones le quedan a cada cliente</span></span><span style="font-size:20px">›</span></button>`; const ren = L.filter(x => x.st.quedan <= 1).length, deben = L.filter(x => x.st.sinBonoPast).length;
       return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('bonos')"><span class="col" style="gap:2px"><b style="font-size:14px">Bonos</b><span class="muted" style="font-size:12px">${L.length} cliente${L.length === 1 ? '' : 's'}${ren ? ' · <b style="color:var(--warn)">' + ren + ' por renovar</b>' : ''}${deben ? ' · <b style="color:var(--bad)">' + deben + ' con sesiones sin pagar</b>' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
+    ${cardAreas(st.I, ym)}
     <div class="card stack" style="gap:10px">
       <div class="row between"><b style="font-size:14px">Últimos 12 meses</b><span class="muted" style="font-size:12px">media ${eur0(avg)} · ${yr}: ${eur0(anual)}</span></div>
       <div class="bars">${months.map((m, i) => `<button class="${m === ym ? 'on' : ''}" aria-label="${MESES[parseD(m + '-01').getMonth()]}: ${eur0(vals[i])}" onclick="S.month='${m}';render()"><span style="height:${Math.round(vals[i] / max * 88)}px"></span><span>${MES_C[parseD(m + '-01').getMonth()][0].toUpperCase()}</span></button>`).join('')}</div>
