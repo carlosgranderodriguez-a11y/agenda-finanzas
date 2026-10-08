@@ -162,7 +162,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v38';
+const VERSION = 'v39';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -297,6 +297,13 @@ async function api(action, params = {}) {
   if (isDemo()) return demoApi(action, params);
   const isW = WRITES.includes(action);
   if (isW && /^save/.test(action) && params.data && action !== 'saveConfig' && !params.data.id) params.data.id = uid();
+  if (!BG_WRITES.includes(action) && action !== 'agenda' && queue().some(x => x.bg) && navigator.onLine) await flushQueue();  // lo que lee de la hoja ve antes lo recién guardado
+  if (BG_WRITES.includes(action)) {
+    const q = queue(); q.push({ action, params, t: Date.now() + Math.random(), bg: true }); LS.set('af_queue', q);
+    flushQueue();
+    if (/^delete/.test(action)) return { removed: 1 };
+    return params.data;
+  }
   if (isW && queue().length) {  // si ya hay cola, respeta el orden
     if (navigator.onLine) await flushQueue();
     if (queue().length) return enqueue(action, params);
@@ -319,25 +326,33 @@ function enqueue(action, params) {
   if (/^delete/.test(action)) return { removed: 1 };
   return params.data;
 }
-async function flushQueue() {
-  if (isDemo() || S._flushing) return;
-  let q = queue(); if (!q.length) return;
-  S._flushing = true;
-  try {
-    while (q.length) {
-      const it = q[0];
-      try { await apiRaw(it.action, it.params); }
-      catch (e) { if (e.net) { setOffline(true); break; } toast('No se pudo enviar un cambio: ' + e.message); }
-      q.shift(); LS.set('af_queue', q);
-    }
-    if (!q.length) { setOffline(false); toast('Cambios pendientes enviados ✓'); markStale(); render(); }
-  } finally { S._flushing = false; }
+function flushQueue() {
+  if (isDemo()) return Promise.resolve();
+  if (S._flushP) return S._flushP;
+  if (!queue().length) return Promise.resolve();
+  S._flushP = (async () => {
+    let sent = 0, fg = false;
+    try {
+      while (true) {
+        const q = queue(); if (!q.length) break;   // se relee cada vez: pueden entrar cambios nuevos mientras se envía
+        const it = q[0];
+        try { await apiRaw(it.action, it.params); }
+        catch (e) { if (e.net) { setOffline(true); break; } toast('No se pudo guardar un cambio en Google: ' + e.message); }
+        const q2 = queue(); if (q2.length && q2[0].t === it.t && q2[0].action === it.action) q2.shift(); LS.set('af_queue', q2);
+        sent++; if (!it.bg) fg = true;
+      }
+      if (!queue().length) { setOffline(false); if (fg) { toast('Cambios pendientes enviados ✓'); markStale(); render(); } else if (document.getElementById('netbar')) render(); }
+    } finally { S._flushP = null; }
+  })();
+  return S._flushP;
 }
+// guardado rápido: los cambios de finanzas se aplican al momento en la app y se envían a Google por detrás (en orden)
+const BG_WRITES = ['saveIngreso', 'deleteIngreso', 'saveGasto', 'deleteGasto', 'saveCliente', 'deleteCliente', 'saveConfig', 'saveCategoria'];
 window.addEventListener('online', () => { flushQueue(); const r = route(); if (ROUTES[r] === 'agenda') loadWeek(mondayOf(S.day), true); if (ROUTES[r] === 'fin') loadFin(true); });
 window.addEventListener('offline', () => setOffline(true));
 function netBar() {
   if (isDemo()) return '';
-  const q = queue().length, off = S.offline || !navigator.onLine;
+  const off = S.offline || !navigator.onLine, q = queue().filter(x => off || !x.bg).length;
   if (!off && !q) return '';
   const ts = LS.get('af_lastsync', 0), d = ts ? new Date(ts) : null;
   const cuando = d ? (ymd(d) === todayStr() ? 'de las ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) : 'del ' + d.getDate() + ' ' + MES_C[d.getMonth()]) : 'guardados';
@@ -453,7 +468,7 @@ async function loadFin(force) {
   if (S.loadingFin) return;
   if (!force && S._failF && Date.now() - S._failF < 30000) return;
   S.loadingFin = true; render();
-  try { S.fin = await api('finanzas'); S._finFresh = true; LS.set('af_fin_cache', S.fin); }
+  try { await flushQueue(); const f = await api('finanzas'); if (!queue().length) { S.fin = f; LS.set('af_fin_cache', S.fin); } S._finFresh = true; }
   catch (e) { S._failF = Date.now(); if (!e.net) toast('Finanzas: ' + e.message); }
   finally { S.loadingFin = false; render(); }
 }
@@ -753,7 +768,7 @@ async function venderBonoEvento(b) {
     await saveIng({ id: uid(), fecha: hoy, cliente_id: b.cid, concepto: det, importe: String(b.imp), cobrado: b.cobrado, fecha_cobro: b.cobrado === 'si' ? hoy : '', metodo: b.cobrado === 'si' ? b.met : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: b.imp, detalle: det, bono: b.n }]) }, det + (b.cobrado === 'si' ? ' apuntado como pagado' : ' apuntado: pendiente de pago'));
     const nm = Object.assign({}, m0, b.n === 1 ? { psuelta: String(b.imp) } : { nbono: String(b.n), pbono: String(b.imp) }, m0.tipo ? {} : { tipo });
     if (JSON.stringify(m0) !== JSON.stringify(nm)) await saveMeta(b.cid, nm);
-    loadBonoEv(true);
+    render();
   } catch (e) { toast('El evento se ha creado, pero el bono no se pudo apuntar: ' + e.message); }
 }
 async function guardarEventoBg(data, tmp, mon) {
@@ -1727,7 +1742,7 @@ async function generarFactura(ev) {
     }
     let r;
     if (isDemo()) { const n = +cfgF('siguiente_numero', 1) || 1; r = { numero: (cfgF('serie_factura', d.fecha.slice(0, 4) + '-')) + String(n).padStart(3, '0'), url: '', datos: JSON.stringify(Object.assign({ numero: '', base: faCalc().base, total: faCalc().total }, d)) }; S.fin.config.siguiente_numero = String(n + 1); }
-    else r = await apiRaw('crearFactura', { data: d });
+    else { await flushQueue(); r = await apiRaw('crearFactura', { data: d }); }
     const i = ING().find(x => x.id === FA.ingId);
     Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos });
     if (isDemo()) await api('saveIngreso', { data: i });
@@ -1780,6 +1795,7 @@ async function enviarGestor() {
   const btn = $('#gqBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Preparando y enviando…';
   try {
     if (isDemo()) { await new Promise(r => setTimeout(r, 600)); toast('En modo demo no se envía nada'); btn.disabled = false; btn.textContent = 'Enviar'; return; }
+    await flushQueue();
     const r = await apiRaw('enviarGestor', { data: { anio: GQ.anio, t: GQ.t, mensaje: ($('#gqMsg') || {}).value || '' } });
     S.fin.config['enviado_' + GQ.anio + GQ.t] = new Date().toLocaleString('es-ES'); LS.set('af_fin_cache', S.fin);
     closeSheet(); toast('Enviado ✓ ' + r.facturas + ' facturas y ' + r.gastos + ' gastos');
@@ -1908,7 +1924,7 @@ async function guardarPuntual(ev) {
       const h = PT.hora || '10:00', end = plus1h(h, Math.max(15, num(PT.dur) || 60)), c = clienteOf(cid);
       try { await api('createEvent', { data: { title: 'Entrenamiento ' + aliasOf(c), cat: m.area || (S.cats[0] || {}).id, start: PT.fecha + 'T' + h, end: PT.fecha + 'T' + end, location: '' } }); markStale(); } catch (e) { toast('Apuntado, pero no se pudo crear en la agenda: ' + e.message); }
     }
-    closeSheet(); render(); loadBonoEv(true);
+    closeSheet(); render();
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar'; }
 }
 function ingresoDeEvento(e) { return ING().find(i => lineasOf(i).some(l => l.ev && l.ev === evKey(e))); }
@@ -1978,7 +1994,7 @@ function viewBonos() {
     <span class="muted" style="font-size:13px">Las sesiones se descuentan con los eventos de tu agenda que llevan el nombre del cliente. ● hecha · ○ reservada</span>
     <div class="card" style="padding:4px 14px">${L.length ? L.map(x => { const a = x.st.activo;
       return `<button class="li" onclick="sheetFicha('${x.id}')"><span class="av" style="background:${x.c.color || '#6B6E75'}22;color:${x.c.color || '#6B6E75'}">${esc(initials(x.c.nombre))}</span>
-      <span class="col grow" style="gap:5px"><b style="font-size:14px">${esc(x.c.nombre)}</b>${a ? dots(a.n, a.hechas, a.reservadas) : '<span class="muted" style="font-size:12px">Bono terminado</span>'}</span>
+      <span class="col grow" style="gap:5px"><b style="font-size:14px">${esc(x.c.nombre)}</b>${a ? dots(a.n, a.hechas, a.reservadas) : '<span class="muted" style="font-size:12px">Bono terminado</span>'}<span class="muted" style="font-size:11px">${x.st.bonos.reduce((s, b) => s + b.hechas, 0)} hechas de ${x.st.bonos.reduce((s, b) => s + b.n, 0)} compradas</span></span>
       <span class="col" style="align-items:flex-end;gap:3px"><b class="big" style="font-size:22px;color:${x.st.quedan <= 1 ? 'var(--warn)' : 'var(--ink)'}">${x.st.quedan}</b><span class="muted" style="font-size:11px">quedan</span>${x.st.sinBonoPast ? `<span class="badge b-bad">${x.st.sinBonoPast} sin pagar</span>` : x.st.quedan <= 1 ? '<span class="badge b-warn">Renovar</span>' : ''}</span></button>`; }).join('') : `<div class="empty">Aún no has vendido bonos. Elige un cliente abajo y pulsa «+ Bono».</div>`}</div>
     ${(() => { const con = new Set(L.map(x => x.id)); const sin = [...S.fin.clientes].filter(c => !con.has(c.id)).sort((a, b) => a.nombre.localeCompare(b.nombre));
       return sin.length ? `<span class="eyebrow">Clientes sin bono</span><div class="card" style="padding:4px 14px">${sin.map(c => `<div class="li"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><button class="col grow" style="gap:1px;border:0;background:none;text-align:left;padding:0" onclick="sheetFicha('${c.id}')"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Ver ficha</span></button><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetVenta('${c.id}',${num(metaOf(c.id).nbono) || 4})">+ Bono</button><button class="chip" style="background:var(--bg)" onclick="sheetVenta('${c.id}',1)">Suelta</button></div>`).join('')}</div>` : ''; })()}
@@ -1997,6 +2013,7 @@ function sheetFicha(cid) {
     <div class="row" style="gap:12px"><span class="av" style="width:48px;height:48px;background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>
       <div class="col grow"><h1 style="font-size:22px">${esc(c.nombre)}</h1><span class="muted" style="font-size:12px">En la agenda: «${esc(aliasOf(c))}»${m.area ? ' · ' + esc(catOf(m.area).nombre) : ''}</span></div>
       <button class="chip" style="background:var(--bg)" onclick="CC_back='ficha';sheetCliente('${cid}');CC_back='ficha'">Editar</button></div>
+    ${st ? resumenAtleta(cid, st) : ''}
     ${st ? `<div class="card stack" style="background:var(--bg);gap:10px">
       <div class="row between" style="align-items:flex-end"><div class="col"><span class="eyebrow">${a ? 'Bono actual' : 'Sin bono activo'}</span><span class="big" style="font-size:34px">${st.quedan} <span style="font-size:15px;font-weight:600">${st.quedan === 1 ? 'sesión' : 'sesiones'} ${st.quedan === 1 ? 'queda' : 'quedan'}</span></span></div>${S.loadingBonoEv ? '<span class="spin"></span>' : ''}</div>
       ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>
@@ -2047,6 +2064,27 @@ async function devolverSesion(evId, start, cid, volver) {   // sesión de la age
   const v = JSON.stringify(L.slice(-500));
   try { await api('saveConfig', { data: { ses_excluidas: v } }); S.fin.config.ses_excluidas = v; LS.set('af_fin_cache', S.fin); toast(volver ? 'Vuelve a contar' : 'Sesión devuelta'); render(); sheetFicha(cid); }
   catch (e) { toast(e.message); }
+}
+// resumen de un atleta: todo lo comprado, hecho y pendiente, y la lista completa de sesiones
+function resumenAtleta(cid, st) {
+  const B = st.bonos, compr = B.reduce((a, b) => a + b.n, 0), hechas = B.reduce((a, b) => a + b.hechas, 0);
+  const pag = B.filter(b => b.cobrado).reduce((a, b) => a + num(b.importe), 0), pen = B.filter(b => !b.cobrado).reduce((a, b) => a + num(b.importe), 0);
+  const now = nowLocal(), L = [];
+  B.forEach(b => { const lab = b.n === 1 ? 'Suelta' : 'Bono ' + b.n + ' · ' + fmtLong(b.fecha); let k = 0;
+    sesManual(b).forEach(f => L.push({ d: f || '', t: '', lab, k: ++k, n: b.n, man: 1, pag: b.cobrado }));
+    b.ses.forEach(x => L.push({ d: x.start.slice(0, 10), t: hm(x.start), lab, k: ++k, n: b.n, fut: x.start >= now, pag: b.cobrado })); });
+  st.sinBono.forEach(x => L.push({ d: x.start.slice(0, 10), t: hm(x.start), lab: 'Sin bono', fut: x.start >= now, sin: 1 }));
+  L.sort((a, b) => (a.d || '0').localeCompare(b.d || '0') || a.t.localeCompare(b.t));
+  const fd = d0 => { if (!d0) return 'sin fecha'; const d = parseD(d0); return DL[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MES_C[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2); };
+  const box = (n, l, c) => `<div style="background:var(--card);border-radius:12px;padding:8px 6px;text-align:center"><b class="big" style="font-size:22px;${c ? 'color:' + c : ''}">${n}</b><br><span class="muted" style="font-size:11px">${l}</span></div>`;
+  const open = S._resOpen === cid;
+  return `<div class="card stack" style="background:var(--bg);gap:10px">
+    <span class="eyebrow">Resumen del atleta</span>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px">${box(compr, 'compradas')}${box(hechas, 'hechas')}${box(st.quedan, 'quedan', st.quedan <= 1 ? 'var(--warn)' : '')}${box(st.sinBonoPast, 'sin pagar', st.sinBonoPast ? 'var(--bad)' : '')}</div>
+    <span style="font-size:13px">${B.filter(b => b.n > 1).length} bonos · ${B.filter(b => b.n === 1).length} sueltas · pagado <b>${eur(pag)}</b>${pen ? ` · <b style="color:var(--warn)">pendiente ${eur(pen)}</b>` : ''}${st.reservadas ? ' · ' + st.reservadas + ' reservadas' : ''}</span>
+    <button class="chip" style="background:var(--card);align-self:flex-start" onclick="S._resOpen=${open ? "''" : `'${cid}'`};sheetFicha('${cid}')">${open ? 'Ocultar sesiones ▴' : 'Ver todas las sesiones (' + L.length + ') ▾'}</button>
+    ${open ? `<div class="col" style="gap:4px">${L.length ? L.map(x => `<div class="row" style="gap:8px;font-size:13px;${x.fut ? 'opacity:.6' : ''}"><span style="width:92px;flex:none">${fd(x.d)}${x.t ? ' ' + x.t : ''}</span><span class="grow" style="${x.sin ? 'color:var(--bad);font-weight:700' : ''}">${x.sin ? 'Sin bono' : esc(x.lab) + (x.n > 1 ? ' · ' + x.k + '/' + x.n : '')}${x.man ? ' <span class="muted">(a mano)</span>' : ''}${x.fut ? ' <span class="muted">(reservada)</span>' : ''}</span>${x.sin ? '' : x.pag ? '<span class="badge b-ok">pagado</span>' : '<span class="badge b-warn">pendiente</span>'}</div>`).join('') : '<span class="muted" style="font-size:12px">Sin sesiones todavía.</span>'}</div>` : ''}
+  </div>`;
 }
 function registroBono(b, cid) {
   const fmt = s => { const d = parseD(s.start); return DL[(d.getDay() + 6) % 7] + ' ' + d.getDate() + ' ' + MES_C[d.getMonth()] + ' ' + d.getFullYear() + ' · ' + hm(s.start); };
@@ -2100,7 +2138,7 @@ async function guardarVenta(ev) {
     // recuerda precio/sesiones para la próxima vez
     const m = metaOf(VT.cid), nm = Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : { nbono: String(n), pbono: String(imp) }, m.tipo ? {} : { tipo: VT.tipo });
     if (JSON.stringify(m) !== JSON.stringify(nm)) await saveMeta(VT.cid, nm);
-    await loadBonoEv(true); render(); sheetFicha(VT.cid);
+    render(); sheetFicha(VT.cid);
   } catch (e) { toast(e.message); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); }
 }
 // en la ficha de un evento: a qué bono cuenta y opción de no descontarlo
