@@ -253,23 +253,27 @@ async function run() {
   }
 
   if (inApp) {
-    autoUpdate()
-    // abierto tocando el widget o desde Scriptable: se muestra al momento lo guardado y luego se actualiza
+    // abierto tocando el widget: se enseña al instante lo guardado y, si es viejo, se refresca por detrás sin recargar la vista
+    const c = readCache(), fresh = c && c._age < 10
     const wv = new WebView()
-    const c = readCache()
-    await wv.loadHTML(c ? inAppHTML(Object.assign(c, { _offline: false, _loading: true })) : loadingHTML())
-    const shown = wv.present(true)
-    try {
-      if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
-      const t0 = Date.now()
-      const d = await fetchData(25)
-      d._secs = Math.round((Date.now() - t0) / 1000)
-      await wv.loadHTML(inAppHTML(d))
-    } catch (e) {
-      if (c) { c._offline = true; c._err = e.message; await wv.loadHTML(inAppHTML(c)) }
-      else await wv.loadHTML(errorHTML(e.message))
+    await wv.loadHTML(c ? inAppHTML(Object.assign({}, c, { _offline: false, _loading: !fresh })) : loadingHTML())
+    let t0 = Date.now()
+    // si iOS cierra la vista nada más abrirse (pasa al arrancar Scriptable en frío), se vuelve a abrir una vez
+    const shown = wv.present(true).then(async () => { if (Date.now() - t0 < 1500) { t0 = Date.now(); await wv.present(true) } })
+    const swap = async html => { try { await wv.evaluateJavaScript('document.open();document.write(' + JSON.stringify(html) + ');document.close();0') } catch (e) { await wv.loadHTML(html) } }
+    if (!fresh) {
+      try {
+        if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
+        const t1 = Date.now(), d = await fetchData(25)
+        d._secs = Math.round((Date.now() - t1) / 1000)
+        await swap(inAppHTML(d))
+      } catch (e) {
+        if (c) { c._offline = true; c._err = e.message; await swap(inAppHTML(c)) }
+        else await swap(errorHTML(e.message))
+      }
     }
     await shown
+    await autoUpdate()   // después, para no frenar la apertura
     Script.complete()
     return
   }
