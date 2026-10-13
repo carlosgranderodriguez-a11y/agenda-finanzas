@@ -88,12 +88,30 @@ function handle_(p) {
         var c = CacheService.getScriptCache(), v = c.get('agv') || '0', k = 'ag_' + v + '_' + p.from + '_' + p.to;
         if (!p.fresh) { var hit = c.get(k); if (hit) return JSON.parse(hit); }
         var r = getAgenda_(p.from, p.to);
-        try { c.put(k, JSON.stringify(r), 120); } catch (e) {}
+        try { c.put(k, JSON.stringify(r), 600); } catch (e) {}
         return r;
       },
       createEvent: function () { return createEvent_(data); },
       deleteEvent: function () { return deleteEvent_(data); },
-      finanzas: function () { return getFinanzas_(); },
+      finanzas: function () {
+        // guardado en memoria de Google hasta que cambie algo (antes leía la hoja entera cada vez)
+        var k = 'fin_' + (CacheService.getScriptCache().get('fv') || '0'), hit = bigGet_(k);
+        if (hit) return JSON.parse(hit);
+        var f = getFinanzas_();
+        try { bigPut_(k, JSON.stringify(f), 21600); } catch (e) {}
+        return f;
+      },
+      batch: function () {
+        // varios cambios en una sola llamada (la app los agrupa)
+        var res = [], list = data || [];
+        for (var i = 0; i < list.length; i++) {
+          var it = list[i]; if (!A[it.action] || it.action === 'batch') throw new Error('Acción desconocida: ' + it.action);
+          data = it.params ? it.params.data : it.data; if (typeof data === 'string') { try { data = JSON.parse(data); } catch (e) {} }
+          res.push(A[it.action]());
+        }
+        return res;
+      },
+      enviarFactura: function () { return enviarFactura_(data); },
       saveCliente: function () { return upsert_('Clientes', data); },
       deleteCliente: function () { return remove_('Clientes', data.id); },
       saveIngreso: function () { return upsert_('Ingresos', data); },
@@ -118,8 +136,9 @@ function handle_(p) {
       }
     };
     if (!A[p.action]) throw new Error('Acción desconocida: ' + p.action);
-    if (/^(save|delete|create|update)/.test(p.action)) { try { var cc = CacheService.getScriptCache(); cc.remove('widget'); cc.put('agv', String(Date.now()), 21600); } catch (e) {} }
+    var lectura = /^(ping|agenda|finanzas|widget|previewFactura)$/.test(p.action);
     out = { ok: true, data: A[p.action]() };
+    if (!lectura) { try { var cc = CacheService.getScriptCache(), now = String(Date.now()); cc.remove('widget'); cc.put('fv', now, 21600); if (/Event|Config|Categoria|batch/.test(p.action)) cc.put('agv', now, 21600); } catch (e) {} }
   } catch (err) {
     out = { ok: false, error: String(err.message || err) };
   }
@@ -128,6 +147,21 @@ function handle_(p) {
     return ContentService.createTextOutput(p.callback + '(' + json + ')').setMimeType(ContentService.MimeType.JAVASCRIPT);
   }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ============ CACHÉ GRANDE (trozos de 45 KB) ============ */
+function bigGet_(key) {
+  var c = CacheService.getScriptCache(), n = +(c.get(key + '_n') || 0); if (!n) return null;
+  var ks = []; for (var i = 0; i < n; i++) ks.push(key + '_' + i);
+  var m = c.getAll(ks), s = ''; for (var j = 0; j < ks.length; j++) { if (m[ks[j]] == null) return null; s += m[ks[j]]; }
+  return s;
+}
+function bigPut_(key, str, ttl) {
+  var size = 45000, o = {}, n = Math.ceil(str.length / size);
+  if (n > 150) return;
+  for (var i = 0; i < n; i++) o[key + '_' + i] = str.substr(i * size, size);
+  o[key + '_n'] = String(n);
+  CacheService.getScriptCache().putAll(o, ttl);
 }
 
 /* ============ SHEET HELPERS ============ */
@@ -431,6 +465,25 @@ function crearFactura_(d) {
     }
     return { numero: d.numero, url: file.getUrl(), datos: datos };
   } finally { lock.releaseLock(); }
+}
+
+/* ============ ENVIAR UNA FACTURA AL CLIENTE ============ */
+// d: { ingId, email, mensaje }
+function enviarFactura_(d) {
+  var rows = readRows_('Ingresos'), o = null;
+  for (var i = 0; i < rows.length; i++) if (rows[i].id === d.ingId) { o = rows[i]; break; }
+  if (!o || !o.factura_datos) throw new Error('Este ingreso no tiene factura');
+  var fd = JSON.parse(o.factura_datos), c = getConfig_();
+  var to = String(d.email || (fd.cliente || {}).email || '').trim();
+  if (!/@/.test(to)) throw new Error('Falta el email del cliente');
+  var file = fd.fileId ? DriveApp.getFileById(fd.fileId) : null;
+  if (!file) throw new Error('No encuentro el PDF de la factura en Drive');
+  var asunto = 'Factura ' + fd.numero + (c.emisor_nombre ? ' · ' + c.emisor_nombre : '');
+  var cuerpo = (d.mensaje || ('Hola,\n\nTe adjunto la factura ' + fd.numero + ' por importe de ' + eur_(fd.total) + ' €.' + (c.emisor_iban ? '\n\nIBAN para el pago: ' + c.emisor_iban : '') + '\n\nUn saludo,\n' + (c.emisor_nombre || '')));
+  MailApp.sendEmail({ to: to, subject: asunto, body: cuerpo, attachments: [file.getBlob()], name: c.emisor_nombre || undefined, replyTo: c.emisor_email || undefined });
+  fd.enviada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); fd.enviada_a = to;
+  o.factura_datos = JSON.stringify(fd); upsert_('Ingresos', o);
+  return { to: to, enviada: fd.enviada, factura_datos: o.factura_datos };
 }
 
 /* ============ GASTOS: foto / PDF del ticket ============ */

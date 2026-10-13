@@ -165,7 +165,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v41';
+const VERSION = 'v42';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -338,11 +338,19 @@ function flushQueue() {
     try {
       while (true) {
         const q = queue(); if (!q.length) break;   // se relee cada vez: pueden entrar cambios nuevos mientras se envía
-        const it = q[0];
-        try { await apiRaw(it.action, it.params); }
-        catch (e) { if (e.net) { setOffline(true); break; } toast('No se pudo guardar un cambio en Google: ' + e.message); }
-        const q2 = queue(); if (q2.length && q2[0].t === it.t && q2[0].action === it.action) q2.shift(); LS.set('af_queue', q2);
-        sent++; if (!it.bg) fg = true;
+        // los cambios de finanzas seguidos se mandan juntos en una sola llamada
+        let n = 1; if (q[0].bg && !S._noBatch) while (n < q.length && n < 25 && q[n].bg) n++;
+        const grp = q.slice(0, n);
+        let net = false;
+        try {
+          if (n > 1) {
+            try { await apiRaw('batch', { data: grp.map(it => ({ action: it.action, params: it.params })) }, 60000); }
+            catch (e) { if (/desconocida: batch/i.test(e.message)) { S._noBatch = true; continue; } throw e; }
+          } else await apiRaw(grp[0].action, grp[0].params);
+        } catch (e) { if (e.net) { setOffline(true); net = true; } else toast('No se pudo guardar un cambio en Google: ' + e.message); }
+        if (net) break;
+        const ts = new Set(grp.map(it => it.t)); LS.set('af_queue', queue().filter(it => !ts.has(it.t)));
+        sent += n; if (grp.some(it => !it.bg)) fg = true;
       }
       if (!queue().length) { setOffline(false); if (fg) { toast('Cambios pendientes enviados ✓'); markStale(); render(); } else if (document.getElementById('netbar')) render(); }
     } finally { S._flushP = null; }
@@ -490,7 +498,7 @@ function sesionesDe(cid, ym) {
 function markStale() { S.monthEv = {}; Object.keys(S.agenda).forEach(k => { if (S.agenda[k]) S.agenda[k]._stale = true; }); S._finFresh = false; }
 
 /* ---------- router ---------- */
-const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', areas: 'fin', bonos: 'fin', caja: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
+const ROUTES = { hoy: 'agenda', semana: 'agenda', resumen: 'fin', ingresos: 'fin', concepto: 'fin', areas: 'fin', facturas: 'fin', bonos: 'fin', caja: 'fin', gastos: 'fin', clientes: 'fin', ajustes: 'cfg' };
 function route() { const h = (location.hash || '#hoy').slice(1); return ROUTES[h] ? h : 'hoy'; }
 function go(h) { if (location.hash === '#' + h) render(); else location.hash = h; }
 window.addEventListener('hashchange', () => { if (sheetShown()) closeSheet(true); window.scrollTo(0, 0); render(); });
@@ -509,6 +517,7 @@ function render() {
   else if (r === 'clientes') app.innerHTML = viewClientes();
   else if (r === 'ajustes') app.innerHTML = viewAjustes();
   else if (r === 'areas') app.innerHTML = viewAreasFin();
+  else if (r === 'facturas') app.innerHTML = viewFacturas();
   renderNav(r);
   afterRender(r);
 }
@@ -518,7 +527,7 @@ function renderNav(r) {
   if (sec === 'agenda' || sec === 'cfg')
     $('#nav').innerHTML = a('hoy', 'Hoy') + a('semana', 'Semana') + `<button class="plus" aria-label="Nuevo evento" onclick="sheetEvento()">${ICON.plus}</button>` + a('resumen', 'Finanzas') + a('ajustes', 'Ajustes');
   else
-    $('#nav').innerHTML = a('resumen', 'Resumen') + a('ingresos', 'Ingresos') + `<button class="plus" aria-label="Nuevo ingreso" onclick="sheetIngreso()">${ICON.plus}</button>` + a('gastos', 'Gastos') + a('hoy', 'Agenda');
+    $('#nav').innerHTML = a('resumen', 'Resumen') + a('ingresos', 'Ingresos') + `<button class="plus" aria-label="Apuntar" onclick="sheetApuntar()">${ICON.plus}</button>` + a('gastos', 'Gastos') + a('hoy', 'Agenda');
 }
 function afterRender(r) {
   if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
@@ -1018,6 +1027,70 @@ function viewAreasFin() {
     <span class="muted" style="font-size:12px">Cada ingreso cuenta en el área de su cliente (Finanzas → Clientes → Área). Si el concepto se llama igual que un área (p. ej. «Best Athletes»), cuenta en esa área.</span>
   </div>`;
 }
+/* ---- un solo botón para apuntar: pregunta qué es y lleva al sitio ---- */
+function sheetApuntar() {
+  const op = (ico, t, d, on) => `<button class="card row" style="gap:12px;border:0;text-align:left;width:100%;background:var(--bg);padding:14px" onclick="${on}"><span style="font-size:24px;width:32px;text-align:center">${ico}</span><span class="col grow" style="gap:2px"><b style="font-size:15px">${t}</b><span class="muted" style="font-size:12px">${d}</span></span><span style="font-size:18px">›</span></button>`;
+  const plan = tiposList().find(t => /planific/i.test(t)) || tiposList()[0];
+  openSheet(`<div class="stack" style="gap:10px"><h1 style="font-size:24px">¿Qué quieres apuntar?</h1>
+    ${op('🎟️', 'Bono de sesiones', 'Un cliente compra un bono (4 sesiones). Pagado o pendiente.', "sheetElegirCli()")}
+    ${op('🏋️', 'Sesión suelta', 'Un entrenamiento puntual que se paga aparte.', "sheetPuntual({})")}
+    ${op('📋', 'Planificaciones del mes', 'Apunta de golpe a todos los atletas que planificas este mes.', `S.tipoSel='${esc(plan).replace(/'/g, '')}';sheetLote()`)}
+    ${op('💶', 'Otro cobro', 'Mensualidad, club, federación… cualquier otro ingreso.', "sheetIngreso()")}
+    ${op('🧾', 'Gasto', 'Algo que has pagado tú (con foto del ticket).', "sheetGasto()")}
+  </div>`);
+}
+function sheetElegirCli() {
+  const cs = [...S.fin.clientes].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  openSheet(`<div class="stack"><h1 style="font-size:22px">Bono · ¿para quién?</h1>
+    <div class="chips" style="flex-wrap:wrap">${cs.map(c => `<button class="chip" style="background:var(--bg)" onclick="sheetVenta('${c.id}',${num(metaOf(c.id).nbono) || 4})">${esc(c.nombre)}</button>`).join('')}</div>
+    <button class="btn" style="background:var(--bg)" onclick="sheetCliente()">+ Cliente nuevo</button></div>`);
+}
+/* ---- lista de facturas emitidas ---- */
+const fdOf = i => { try { return JSON.parse(i.factura_datos || '{}') || {}; } catch (e) { return {}; } };
+function viewFacturas() {
+  if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
+  const all = ING().filter(i => i.num_factura || i.factura_url).map(i => ({ i, f: fdOf(i) })).map(x => Object.assign(x, { fecha: x.f.fecha || x.i.fecha || '', total: num(x.f.total) || num(x.i.importe) }));
+  const yrs = [...new Set(all.map(x => x.fecha.slice(0, 4)).filter(Boolean))].sort().reverse();
+  const y = S.facYr && yrs.includes(S.facYr) ? S.facYr : (yrs[0] || todayStr().slice(0, 4));
+  const L = all.filter(x => x.fecha.startsWith(y)).sort((a, b) => b.fecha.localeCompare(a.fecha) || String(b.i.num_factura).localeCompare(String(a.i.num_factura)));
+  const tot = L.reduce((s, x) => s + x.total, 0), cob = L.filter(x => cobrado(x.i)).reduce((s, x) => s + x.total, 0);
+  const porFac = ING().filter(porFacturar).length;
+  return `<div class="stack">
+    ${demoBanner()}
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:26px" class="grow">Facturas</h1>${eyeBtn()}</div>
+    ${yrs.length > 1 ? `<div class="opt">${yrs.map(v => `<button class="${v === y ? 'on' : ''}" onclick="S.facYr='${v}';render()">${v}</button>`).join('')}</div>` : ''}
+    <div class="hero" style="gap:8px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Facturado en ${y} · ${L.length} facturas</span><span class="big" style="font-size:34px">${eur0(tot)}</span>
+      <div class="grid2"><div class="mini"><span>Cobrado</span><span style="color:#7FD1AE">${eur0(cob)}</span></div><div class="mini"><span>Pendiente de cobro</span><span>${eur0(tot - cob)}</span></div></div></div>
+    ${porFac ? `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--warnbg)" onclick="S.filter='sinfactura';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--warn);font-weight:700;font-size:13px">${porFac} ingresos sin factura · elige cuál facturar</span><span>›</span></button>` : ''}
+    <div class="card" style="padding:4px 14px">${L.length ? L.map(({ i, f, fecha, total }) => { const c = clienteOf(i.cliente_id), d = parseD(fecha);
+      return `<div class="li" style="flex-wrap:wrap;gap:8px">
+        <span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(i.num_factura || f.numero || 'Sin nº')} · ${esc((f.cliente && f.cliente.nombre) || c.nombre || '—')}</b>
+          <span class="row" style="gap:6px;flex-wrap:wrap;font-size:12px"><span class="muted">${d.getDate()} ${MES_C[d.getMonth()]}</span>${cobrado(i) ? '<span class="badge b-ok">Cobrada</span>' : '<span class="badge b-warn">Pendiente</span>'}${f.enviada ? `<span class="badge" style="background:#DCE1F6;color:var(--accent)">Enviada ${parseD(f.enviada).getDate()}/${parseD(f.enviada).getMonth() + 1}</span>` : ''}</span></span>
+        <b style="font-size:15px">${eur(total)}</b>
+        <div class="row" style="gap:6px;width:100%">${i.factura_url ? `<a class="chip" style="background:var(--bg);text-decoration:none;color:var(--ink)" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}${f.fileId ? `<button class="chip" style="background:var(--bg)" onclick="sheetEnviarFac('${i.id}')">${f.enviada ? 'Reenviar' : 'Enviar por email'}</button>` : ''}${cobrado(i) ? '' : `<button class="chip" style="background:var(--okbg);color:var(--ok)" onclick="sheetCobro('${i.id}')">Marcar cobrada</button>`}<button class="chip" style="background:var(--bg)" onclick="sheetVerIngreso('${i.id}')">Detalle</button></div>
+      </div>`; }).join('') : `<div class="empty">No hay facturas en ${y}. Para hacer una: abre un ingreso → «Hacer factura».</div>`}</div>
+  </div>`;
+}
+let EF = null;
+function sheetEnviarFac(id) {
+  const i = ING().find(x => x.id === id), f = fdOf(i), c = clienteOf(i.cliente_id), cfg = S.fin.config || {};
+  EF = { id, email: (f.cliente && f.cliente.email) || c.email || '', msg: 'Hola,\n\nTe adjunto la factura ' + (f.numero || i.num_factura) + ' por importe de ' + eurRaw(num(f.total) || num(i.importe)) + '.' + (cfg.emisor_iban ? '\n\nIBAN para el pago: ' + cfg.emisor_iban : '') + '\n\nUn saludo,\n' + (cfg.emisor_nombre || '') };
+  openSheet(`<form class="stack" onsubmit="enviarFac(event)"><h1 style="font-size:22px">Enviar factura ${esc(f.numero || i.num_factura)}</h1>
+    <label class="f">Email del cliente<input class="in" type="email" required value="${esc(EF.email)}" oninput="EF.email=this.value" placeholder="cliente@email.com"></label>
+    <label class="f">Mensaje<textarea class="in" style="min-height:150px" oninput="EF.msg=this.value">${esc(EF.msg)}</textarea></label>
+    <span class="muted" style="font-size:12px">Se envía desde tu Gmail con el PDF adjunto.${f.enviada ? ' Ya se envió el ' + fmtLong(f.enviada) + (f.enviada_a ? ' a ' + esc(f.enviada_a) : '') + '.' : ''}</span>
+    <button class="btn dark" type="submit" id="efBtn">Enviar</button></form>`);
+}
+async function enviarFac(ev) {
+  ev.preventDefault(); const b = $('#efBtn'); b.disabled = true; b.innerHTML = '<span class="spin"></span> Enviando…';
+  try {
+    if (isDemo()) throw new Error('En modo demo no se envían emails');
+    const r = await api('enviarFactura', { data: { ingId: EF.id, email: EF.email.trim(), mensaje: EF.msg } });
+    const i = ING().find(x => x.id === EF.id); if (i && r.factura_datos) { i.factura_datos = r.factura_datos; LS.set('af_fin_cache', S.fin); }
+    if (EF.email && i) { const c = clienteOf(i.cliente_id); if (c.id && !c.email) api('saveCliente', { data: Object.assign({}, c, { email: EF.email.trim() }) }).then(x => Object.assign(c, x)).catch(() => {}); }
+    closeSheet(); toast('Factura enviada a ' + r.to); render();
+  } catch (e) { toast(/desconocida/i.test(e.message) ? 'Para enviar facturas pega el Code.gs nuevo en Apps Script' : e.message); b.disabled = false; b.textContent = 'Enviar'; }
+}
 function viewResumen() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const ym = S.month, md = parseD(ym + '-01');
@@ -1086,6 +1159,8 @@ function viewResumen() {
       ${cl.length ? `<div class="catbar">${cl.map(x => `<span style="flex:${x.v};background:${x.c.color || '#6B6E75'}"></span>`).join('')}</div>
       <div class="col" style="gap:8px">${cl.map(x => `<button class="row" style="font-size:13px;gap:8px;border:0;background:none;padding:2px 0;text-align:left" onclick="S.q='${esc(x.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')"><i style="width:9px;height:9px;border-radius:5px;background:${x.c.color || '#6B6E75'};flex:none"></i><span class="grow">${esc(x.c.nombre)}</span><span class="muted" style="font-size:12px">${Math.round(x.v / st.ingresos * 100)}%</span><b style="width:74px;text-align:right">${eur0(x.v)}</b></button>`).join('')}</div>` : `<span class="muted" style="font-size:13px">Sin ingresos este mes.</span>`}
     </div>
+    ${(() => { const F = ING().filter(i => i.num_factura || i.factura_url), yr = todayStr().slice(0, 4), fy = F.filter(i => (fdOf(i).fecha || i.fecha || '').startsWith(yr)), pc = fy.filter(i => !cobrado(i)).length;
+      return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('facturas')"><span class="col" style="gap:2px"><b style="font-size:14px">Facturas</b><span class="muted" style="font-size:12px">${fy.length} en ${yr}${pc ? ' · <b style="color:var(--warn)">' + pc + ' sin cobrar</b>' : ''} · ver, enviar y descargar</span></span><span style="font-size:20px">›</span></button>`; })()}
     ${(() => { const q = trimOf(todayStr()), d = datosTrim(q); return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="GQ=null;sheetGestor()"><span class="col" style="gap:2px"><b style="font-size:14px">Gestor · ${q.t} ${q.anio}</b><span class="muted" style="font-size:12px">${d.fac.length} facturas · ${d.gas.length} gastos${d.sinFoto.length ? ' · <b style="color:var(--warn)">' + d.sinFoto.length + ' sin foto</b>' : ''}${cfgF('enviado_' + q.anio + q.t, '') ? ' · enviado' : ''}</span></span><span style="font-size:20px">›</span></button>`; })()}
     ${(() => { const q = cajaMes(S.month); return `<button class="card row between" style="border:0;text-align:left;width:100%" onclick="go('caja')"><span class="col" style="gap:2px"><b style="font-size:14px">Flujo de caja · ${MES_C[parseD(S.month + '-01').getMonth()]}</b><span class="muted" style="font-size:12px">Entra ${eur0(q.entra)} · sale ${eur0(q.sale)} · saldo <b style="color:${q.entra - q.sale >= 0 ? 'var(--ok)' : 'var(--bad)'}">${eur0(q.entra - q.sale)}</b></span></span><span style="font-size:20px">›</span></button>`; })()}
     <div class="row"><button class="btn grow" onclick="go('clientes')">Clientes</button><button class="btn grow" onclick="exportCSV()">Exportar CSV</button></div>
