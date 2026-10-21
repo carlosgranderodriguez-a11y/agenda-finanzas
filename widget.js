@@ -247,7 +247,7 @@ async function run() {
   if (!inApp) {
     try {
       if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
-      d = await getData(12, 10)
+      d = await getData(12, 1)
       HIDE = !(args.widgetParameter || '').toLowerCase().includes('visible')
     } catch (e) { err = e }
   }
@@ -281,7 +281,7 @@ async function run() {
   const w = new ListWidget()
   w.setPadding(14, 14, 14, 14)
   w.url = 'scriptable:///run/' + encodeURIComponent(Script.name())
-  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000)
+  w.refreshAfterDate = new Date(Date.now() + 5 * 60 * 1000)
   try {
     if (err) throw err
     const fam = config.widgetFamily || 'large'

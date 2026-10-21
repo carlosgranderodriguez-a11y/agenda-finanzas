@@ -165,7 +165,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v42';
+const VERSION = 'v43';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -468,6 +468,7 @@ async function loadWeek(mon, force) {
     const r = await api('agenda', { from: mon, to: addDays(mon, 7), fresh: force && S._manualRefresh ? 1 : 0 }); S._manualRefresh = false;
     const tmps = (S.agenda[mon] || []).filter(e => e && e._tmp);
     S.agenda[mon] = r.events.concat(tmps.filter(t => !r.events.some(e => e.title === t.title && e.start === t.start)));
+    if (S.evOv) Object.keys(S.evOv).forEach(id => { const o = S.evOv[id]; if (Date.now() - o.t > 300000 || r.events.some(e => e.id === id && e.start === o.start)) delete S.evOv[id]; });
     if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
     LS.set('af_agenda_cache', keep);
@@ -551,7 +552,9 @@ const demoBanner = () => !isDemo() ? netBar() : `<div class="card stack" style="
 function weekEvents(mon) {
   const R = clientAreaRules();
   const M = evAreaMap();
+  const OV = S.evOv || {};
   return (S.agenda[mon] || []).filter(e => e && e.start).map(e => {
+    const ov = OV[e.id]; if (ov && ov.from === e.start) e = Object.assign({}, e, { start: ov.start, end: ov.end });
     if (M[e.id] && S.cats.some(k => k.id === M[e.id])) return Object.assign({}, e, { cat: M[e.id] });
     if (e._tmp) return e;
     if (!R.length) return e;
@@ -726,7 +729,7 @@ function sheetEvento(atH) {
     <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Área
       <div class="chips" id="catpick" style="flex-wrap:wrap">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
     </div>
-    <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="chips" id="clipick" style="flex-wrap:wrap">${cliChips(S.cats[0] && S.cats[0].id)}</div></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="chips" id="clipick" style="flex-wrap:wrap">${cliChips(S.cats[0] && S.cats[0].id)}</div><div id="cliInfo"></div></div>
     <label class="f">Día<input class="in" type="date" name="date" value="${d}" required></label>
     <div class="grid2">
       <label class="f">Empieza<input class="in" type="time" name="start" value="${startV}" required oninput="finAuto(this)"></label>
@@ -747,6 +750,20 @@ function sheetEvento(atH) {
     </div>
     <button class="btn dark" type="submit">Guardar en Google Calendar</button>
   </form>`);
+}
+// estado de pagos del cliente: sesiones del bono que le quedan, hechas sin pagar y lo que debe
+function cliEstadoHTML(cid) {
+  if (!S.fin) return '';
+  const st = estadoBono(cid), deb = sumI(ING().filter(i => i.cliente_id === cid && debe(i)));
+  const p = [];
+  if (st) {
+    if (st.sinBonoPast) p.push(`<b style="color:var(--bad)">${st.sinBonoPast} ${st.sinBonoPast === 1 ? 'sesión hecha' : 'sesiones hechas'} sin pagar</b>`);
+    p.push(st.quedan ? `Bono: le quedan <b>${st.quedan}</b>` : '<b style="color:var(--warn)">Bono agotado</b>');
+    if (st.sinBonoFut) p.push(`${st.sinBonoFut} reservada${st.sinBonoFut === 1 ? '' : 's'} sin bono`);
+  } else p.push('<span class="muted">Sin bonos apuntados</span>');
+  if (deb) p.push(`<b style="color:var(--warn)">Te debe ${eur(deb)}</b>`);
+  const bad = st && (st.sinBonoPast || !st.quedan);
+  return `<div style="margin-top:6px;border-radius:12px;padding:8px 10px;font-size:13px;background:${bad ? 'var(--badbg)' : 'var(--bg)'}">${p.join(' · ')}${bad ? '<br><span class="muted" style="font-size:12px">Puedes venderle un bono abajo («Vender bono al cliente»).</span>' : ''}</div>`;
 }
 function pickBono(b) {
   document.querySelectorAll('#bonoOpt button').forEach(x => x.classList.toggle('on', x === b));
@@ -774,6 +791,8 @@ function pickCli(b) {
     const cb = a && document.querySelector('#catpick .chip[data-cat="' + a + '"]'); if (cb && !cb.classList.contains('on')) pickCat(cb, true);
     bonoPrefill();
   }
+  const ci = $('#cliInfo'), cid = b.dataset.cid; if (ci) ci.innerHTML = on ? '' : cliEstadoHTML(cid);
+  if (!on && S.fin && !S.bonoRange) loadBonoEv().then(() => { const c2 = $('#cliInfo'), sel = document.querySelector('#clipick .chip.on'); if (c2 && sel && sel.dataset.cid === cid) c2.innerHTML = cliEstadoHTML(cid); });
 }
 async function venderBonoEvento(b) {
   try {
@@ -837,13 +856,21 @@ async function moverEvento(id, start, mins) {
   const e = findEvent(id, start); if (!e) { render(); return; }
   const ns = addMin(e.start, mins), ne = addMin(e.end, mins);
   if (ns.slice(0, 10) !== e.start.slice(0, 10) || ne.slice(0, 10) !== e.start.slice(0, 10)) { toast('Solo se puede mover dentro del mismo día'); render(); return; }
-  const old = [e.start, e.end]; e.start = ns + ':00'; e.end = ne + ':00'; render();
-  toast('Evento movido a las ' + ns.slice(11));
+  // se queda en su sitio nuevo al momento, aunque Google tarde en devolverlo actualizado
+  const mon = mondayOf(ns.slice(0, 10)), orig = (S.agenda[mon] || []).find(x => x.id === id && x.start === start) || (S.agenda[mon] || []).find(x => x.id === id);
+  const old = orig ? [orig.start, orig.end] : null;
+  if (orig) { orig.start = ns + ':00'; orig.end = ne + ':00'; }
+  S.evOv = S.evOv || {}; S.evOv[id] = { from: old ? old[0] : start, start: ns + ':00', end: ne + ':00', t: Date.now() };
+  render(); toast('Movido a las ' + ns.slice(11));
   if (String(id).indexOf('tmp') === 0) return;
   try {
     await api('updateEvent', { data: { id, calId: e.calId || '', title: e.title, start: ns, end: ne } });
-    S.monthEv = {}; S.bonoRange = ''; S._manualRefresh = true; loadWeek(mondayOf(ns.slice(0, 10)), true);
-  } catch (err) { e.start = old[0]; e.end = old[1]; render(); toast(/recurrente/i.test(err.message) ? 'Es un evento que se repite: muévelo desde Google Calendar' : 'No se pudo mover: ' + err.message); }
+    S.monthEv = {}; S.bonoRange = '';
+    const k = LS.get('af_agenda_cache', {}); k[mon] = S.agenda[mon]; LS.set('af_agenda_cache', k);
+  } catch (err) {
+    if (orig && old) { orig.start = old[0]; orig.end = old[1]; } delete S.evOv[id]; render();
+    toast(/recurrente/i.test(err.message) ? 'Es un evento que se repite: muévelo desde Google Calendar' : 'No se pudo mover: ' + err.message);
+  }
 }
 function tapTimeline(ev, h0) {
   if (ev.target.closest('.ev')) return;
@@ -2311,7 +2338,7 @@ function bonoEnEvento(e) {
         const rows = sesManual(b).map(f => `<span style="font-size:13px">${++q}. ${f ? fd(f) : 'sin fecha'} <span class="muted">· apuntada a mano</span></span>`)
           .concat(b.ses.map(x => { const yo = evKey(x) === evKey(e); return `<span style="font-size:13px;${yo ? 'font-weight:800;color:var(--accent)' : ''}">${++q}. ${fd(x.start)} · ${hm(x.start)}${yo ? ' · esta sesión' : x.start >= now ? ' <span class="muted">· reservada</span>' : ''}</span>`; }));
         for (let r = q + 1; r <= b.n; r++) rows.push(`<span class="muted" style="font-size:13px">${r}. por hacer</span>`);
-        extra += `<div class="col" style="gap:3px;margin-top:2px"><span class="eyebrow">Sesiones de este bono</span>${rows.join('')}</div>`; } } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = '<b style="color:var(--bad)">Sin bono: no está pagada</b>'; else if (S.loadingBonoEv) txt = 'Calculando…'; }
+        extra += `<div class="col" style="gap:3px;margin-top:2px"><span class="eyebrow">Sesiones de este bono</span>${rows.join('')}</div>`; } } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = `<b style="color:var(--bad)">Sin bono: no está pagada</b>${st.sinBonoPast > 1 ? ` · lleva <b style="color:var(--bad)">${st.sinBonoPast} sin pagar</b>` : ''}`; else if (S.loadingBonoEv) txt = 'Calculando…'; }
   }
   return `<div class="card" style="background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:6px"><span style="font-size:13px"><b>${esc(c.nombre)}</b> · ${excl ? 'no se descuenta del bono' : txt || 'bono'}</span>${extra}<button class="chip" style="background:var(--card);align-self:flex-start" onclick="sheetFicha('${c.id}')">Ver bono y sesiones ›</button>
     <label class="row" style="gap:8px;font-size:13px;color:var(--muted)"><input type="checkbox" ${excl ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--dark)" onchange="toggleExcl('${esc(e.id)}','${e.start}',this.checked)"> No descontar (cancelada / no cuenta)</label></div>`;
