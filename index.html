@@ -165,7 +165,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v43';
+const VERSION = 'v44';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1064,6 +1064,7 @@ function sheetApuntar() {
     ${op('📋', 'Planificaciones del mes', 'Apunta de golpe a todos los atletas que planificas este mes.', `S.tipoSel='${esc(plan).replace(/'/g, '')}';sheetLote()`)}
     ${op('💶', 'Otro cobro', 'Mensualidad, club, federación… cualquier otro ingreso.', "sheetIngreso()")}
     ${op('🧾', 'Gasto', 'Algo que has pagado tú (con foto del ticket).', "sheetGasto()")}
+    ${op('📄', 'Facturas del mes', 'Haz las facturas de lo cobrado, una por cliente.', "FM=null;sheetFacturasMes()")}
   </div>`);
 }
 function sheetElegirCli() {
@@ -1076,11 +1077,13 @@ function sheetElegirCli() {
 const fdOf = i => { try { return JSON.parse(i.factura_datos || '{}') || {}; } catch (e) { return {}; } };
 function viewFacturas() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
-  const all = ING().filter(i => i.num_factura || i.factura_url).map(i => ({ i, f: fdOf(i) })).map(x => Object.assign(x, { fecha: x.f.fecha || x.i.fecha || '', total: num(x.f.total) || num(x.i.importe) }));
+  // una factura puede juntar varios cobros: se agrupan por número
+  const G = {}; ING().filter(i => i.num_factura || i.factura_url).forEach(i => { const f = fdOf(i), k = i.num_factura || f.numero || i.id; const g = G[k] || (G[k] = { ids: [], items: [] }); g.ids.push(i.id); g.items.push(i); if (!f.ref && (!g.i || f.fileId)) { g.i = i; g.f = f; } });
+  const all = Object.values(G).map(g => { const i = g.i || g.items[0], f = g.f || fdOf(i); return { i, f, ids: g.ids, cob: g.items.every(cobrado), fecha: f.fecha || i.fecha || '', total: num(f.total) || g.items.reduce((s, x) => s + num(x.importe), 0) }; });
   const yrs = [...new Set(all.map(x => x.fecha.slice(0, 4)).filter(Boolean))].sort().reverse();
   const y = S.facYr && yrs.includes(S.facYr) ? S.facYr : (yrs[0] || todayStr().slice(0, 4));
   const L = all.filter(x => x.fecha.startsWith(y)).sort((a, b) => b.fecha.localeCompare(a.fecha) || String(b.i.num_factura).localeCompare(String(a.i.num_factura)));
-  const tot = L.reduce((s, x) => s + x.total, 0), cob = L.filter(x => cobrado(x.i)).reduce((s, x) => s + x.total, 0);
+  const tot = L.reduce((s, x) => s + x.total, 0), cob = L.filter(x => x.cob).reduce((s, x) => s + x.total, 0);
   const porFac = ING().filter(porFacturar).length;
   return `<div class="stack">
     ${demoBanner()}
@@ -1088,14 +1091,15 @@ function viewFacturas() {
     ${yrs.length > 1 ? `<div class="opt">${yrs.map(v => `<button class="${v === y ? 'on' : ''}" onclick="S.facYr='${v}';render()">${v}</button>`).join('')}</div>` : ''}
     <div class="hero" style="gap:8px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Facturado en ${y} · ${L.length} facturas</span><span class="big" style="font-size:34px">${eur0(tot)}</span>
       <div class="grid2"><div class="mini"><span>Cobrado</span><span style="color:#7FD1AE">${eur0(cob)}</span></div><div class="mini"><span>Pendiente de cobro</span><span>${eur0(tot - cob)}</span></div></div></div>
-    ${porFac ? `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--warnbg)" onclick="S.filter='sinfactura';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--warn);font-weight:700;font-size:13px">${porFac} ingresos sin factura · elige cuál facturar</span><span>›</span></button>` : ''}
-    <div class="card" style="padding:4px 14px">${L.length ? L.map(({ i, f, fecha, total }) => { const c = clienteOf(i.cliente_id), d = parseD(fecha);
+    ${porFac ? `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--warnbg)" onclick="sheetFacturasMes()"><span style="color:var(--warn);font-weight:700;font-size:13px">${porFac} cobros sin factura · facturar</span><span>›</span></button>` : ''}
+    <button class="btn primary" onclick="sheetFacturasMes()">+ Hacer facturas</button>
+    <div class="card" style="padding:4px 14px">${L.length ? L.map(({ i, f, fecha, total, ids, cob }) => { const c = clienteOf(i.cliente_id), d = parseD(fecha);
       return `<div class="li" style="flex-wrap:wrap;gap:8px">
         <span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(i.num_factura || f.numero || 'Sin nº')} · ${esc((f.cliente && f.cliente.nombre) || c.nombre || '—')}</b>
-          <span class="row" style="gap:6px;flex-wrap:wrap;font-size:12px"><span class="muted">${d.getDate()} ${MES_C[d.getMonth()]}</span>${cobrado(i) ? '<span class="badge b-ok">Cobrada</span>' : '<span class="badge b-warn">Pendiente</span>'}${f.enviada ? `<span class="badge" style="background:#DCE1F6;color:var(--accent)">Enviada ${parseD(f.enviada).getDate()}/${parseD(f.enviada).getMonth() + 1}</span>` : ''}</span></span>
+          <span class="row" style="gap:6px;flex-wrap:wrap;font-size:12px"><span class="muted">${d.getDate()} ${MES_C[d.getMonth()]}</span>${cob ? '<span class="badge b-ok">Cobrada</span>' : '<span class="badge b-warn">Pendiente</span>'}${ids.length > 1 ? `<span class="muted">${ids.length} cobros</span>` : ''}${f.enviada ? `<span class="badge" style="background:#DCE1F6;color:var(--accent)">Enviada ${parseD(f.enviada).getDate()}/${parseD(f.enviada).getMonth() + 1}</span>` : ''}</span></span>
         <b style="font-size:15px">${eur(total)}</b>
-        <div class="row" style="gap:6px;width:100%">${i.factura_url ? `<a class="chip" style="background:var(--bg);text-decoration:none;color:var(--ink)" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}${f.fileId ? `<button class="chip" style="background:var(--bg)" onclick="sheetEnviarFac('${i.id}')">${f.enviada ? 'Reenviar' : 'Enviar por email'}</button>` : ''}${cobrado(i) ? '' : `<button class="chip" style="background:var(--okbg);color:var(--ok)" onclick="sheetCobro('${i.id}')">Marcar cobrada</button>`}<button class="chip" style="background:var(--bg)" onclick="sheetVerIngreso('${i.id}')">Detalle</button></div>
-      </div>`; }).join('') : `<div class="empty">No hay facturas en ${y}. Para hacer una: abre un ingreso → «Hacer factura».</div>`}</div>
+        <div class="row" style="gap:6px;width:100%">${i.factura_url ? `<a class="chip" style="background:var(--bg);text-decoration:none;color:var(--ink)" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}${f.fileId ? `<button class="chip" style="background:var(--bg)" onclick="sheetEnviarFac('${i.id}')">${f.enviada ? 'Reenviar' : 'Enviar por email'}</button>` : ''}${cob ? '' : `<button class="chip" style="background:var(--okbg);color:var(--ok)" onclick='sheetCobro("${i.id}", ${JSON.stringify(ids)})'>Marcar cobrada</button>`}<button class="chip" style="background:var(--bg)" onclick="sheetVerIngreso('${i.id}')">Detalle</button></div>
+      </div>`; }).join('') : `<div class="empty">No hay facturas en ${y}. Pulsa «+ Hacer facturas».</div>`}</div>
   </div>`;
 }
 let EF = null;
@@ -1260,7 +1264,7 @@ async function saveIng(o, msg) {
   return saved;
 }
 let CB = null;
-function sheetCobro(id) { const i = ING().find(x => x.id === id); CB = { id, metodo: i.metodo || metodoHabitual(i.cliente_id), fecha: todayStr() }; renderCobro(); }
+function sheetCobro(id, ids) { const i = ING().find(x => x.id === id); CB = { id, ids: ids || [id], metodo: i.metodo || metodoHabitual(i.cliente_id), fecha: todayStr() }; renderCobro(); }
 function metodoHabitual(cid) { const l = ING().filter(x => x.cliente_id === cid && x.metodo).sort((a, b) => (b.fecha_cobro || b.fecha || '').localeCompare(a.fecha_cobro || a.fecha || ''))[0]; return l ? l.metodo : ''; }
 function renderCobro() {
   const i = ING().find(x => x.id === CB.id), c = clienteOf(i.cliente_id);
@@ -1274,7 +1278,7 @@ function setCbM(v) { CB.metodo = v; renderCobro(); }
 async function guardarCobro() {
   if (!CB.metodo) { toast('Elige cómo te ha pagado'); return; }
   const i = ING().find(x => x.id === CB.id);
-  try { await saveIng(Object.assign({}, i, { cobrado: 'si', fecha_cobro: CB.fecha, metodo: CB.metodo }), 'Cobro apuntado · ' + metNom(CB.metodo)); render(); sheetVerIngreso(CB.id); }
+  try { for (const id of CB.ids) { const x = ING().find(y => y.id === id); if (x && !cobrado(x)) await saveIng(Object.assign({}, x, { cobrado: 'si', fecha_cobro: CB.fecha, metodo: CB.metodo }), ''); } toast('Cobro apuntado · ' + metNom(CB.metodo)); render(); if (route() === 'facturas') closeSheet(); else sheetVerIngreso(CB.id); }
   catch (e) { toast(e.message); }
 }
 async function toggleIng(id, field) {
@@ -1873,6 +1877,42 @@ function sheetFactura(ingId) {
     lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
   renderFactura();
 }
+/* ---- hacer las facturas del mes: por cliente, juntando sus cobros ---- */
+let FM = null;
+function sheetFacturasMes(ym) {
+  if (!S.fin) return;
+  FM = FM && !ym ? FM : { ym: ym || S.month, off: {} };
+  renderFacturasMes();
+}
+function renderFacturasMes() {
+  const ym = FM.ym, d = parseD(ym + '-01');
+  const P = ING().filter(i => porFacturar(i) && (FM.ym === 'todo' || (i.fecha || '').slice(0, 7) === ym));
+  const by = {}; P.forEach(i => (by[i.cliente_id] = by[i.cliente_id] || []).push(i));
+  const cids = Object.keys(by).sort((a, b) => sumI(by[b]) - sumI(by[a]));
+  const meses = [monthAdd(todayStr().slice(0, 7), -2), monthAdd(todayStr().slice(0, 7), -1), todayStr().slice(0, 7)];
+  const fd = f => { const x = parseD(f); return x.getDate() + ' ' + MES_C[x.getMonth()]; };
+  openSheet(`<div class="stack">
+    <h1 style="font-size:24px">Hacer facturas</h1>
+    <div class="opt">${meses.map(m => `<button type="button" class="${ym === m ? 'on' : ''}" onclick="FM.ym='${m}';renderFacturasMes()" style="text-transform:capitalize">${MES_C[parseD(m + '-01').getMonth()]}</button>`).join('')}<button type="button" class="${ym === 'todo' ? 'on' : ''}" onclick="FM.ym='todo';renderFacturasMes()">Todo</button></div>
+    <span class="muted" style="font-size:13px">${ym === 'todo' ? 'Todos los cobros sin factura.' : 'Cobros de ' + MESES[d.getMonth()] + ' sin factura.'} Una factura por cliente con los cobros marcados.</span>
+    ${cids.length ? cids.map(cid => { const c = clienteOf(cid), L = by[cid].sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')), sel = L.filter(i => !FM.off[i.id]);
+      return `<div class="card stack" style="background:var(--bg);gap:6px">
+        <div class="row between"><b style="font-size:15px">${esc(c.nombre || '—')}</b><b>${eur(sumI(sel))}</b></div>
+        ${L.map(i => `<label class="row" style="gap:8px;font-size:13px"><input type="checkbox" ${FM.off[i.id] ? '' : 'checked'} style="width:20px;height:20px;accent-color:var(--dark)" onchange="FM.off['${i.id}']=!this.checked;renderFacturasMes()"><span class="grow">${fd(i.fecha)} · ${esc(i.concepto || lineasOf(i).map(l => l.detalle || l.tipo).join(', '))}${cobrado(i) ? '' : ' <span class="badge b-warn">sin cobrar</span>'}</span><span>${eur(num(i.importe))}</span></label>`).join('')}
+        <button class="btn dark" style="height:42px" ${sel.length ? '' : 'disabled'} onclick='sheetFacturaMulti("${cid}", ${JSON.stringify(sel.map(i => i.id))})'>Hacer factura${sel.length > 1 ? ' (' + sel.length + ' cobros)' : ''}</button>
+      </div>`; }).join('') : '<div class="empty">No hay nada pendiente de facturar aquí. ✓</div>'}
+    <span class="muted" style="font-size:12px">Los clientes marcados como «no factura» no salen aquí (se cambia en su ficha).</span>
+  </div>`);
+}
+function sheetFacturaMulti(cid, ids) {
+  const I = ids.map(id => ING().find(x => x.id === id)).filter(Boolean); if (!I.length) return;
+  if (I.length === 1) { sheetFactura(I[0].id); FA.fromMes = true; return; }
+  sheetFactura(I[0].id);
+  FA.ingIds = I.map(i => i.id); FA.fromMes = true;
+  const mesDe = f => { const x = parseD(f); return x.getDate() + ' ' + MES_C[x.getMonth()] + ' ' + x.getFullYear(); };
+  FA.lineas = [].concat(...I.map(i => lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo || i.concepto || 'Servicios de entrenamiento', mesDe(i.fecha)].filter(Boolean).join(' · '), importe: String(l.importe) }))));
+  renderFactura();
+}
 function faCalc() {
   const iva = num(FA.iva), irpf = num(FA.irpf), k = FA.incluido ? 1 + iva / 100 - irpf / 100 : 1;
   const lineas = FA.lineas.map(l => ({ concepto: l.concepto, base: Math.round(num(l.importe) / k * 100) / 100 }));
@@ -1929,12 +1969,16 @@ async function generarFactura(ev) {
     else { await flushQueue(); r = await apiRaw('crearFactura', { data: d }); }
     const i = ING().find(x => x.id === FA.ingId);
     Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos });
+    // el resto de cobros de esta factura quedan marcados con el mismo número (sin repetir importes para el gestor)
+    for (const id of (FA.ingIds || []).slice(1)) { const x = ING().find(y => y.id === id); if (!x) continue; Object.assign(x, { facturado: 'si', num_factura: r.numero, factura_url: r.url || '', factura_datos: JSON.stringify({ numero: r.numero, ref: FA.ingId }) }); api('saveIngreso', { data: x }).catch(() => {}); }
     if (isDemo()) await api('saveIngreso', { data: i });
     else { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
     LS.set('af_fin_cache', S.fin); render();
     openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} creada ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>
       ${r.url ? `<a class="btn primary" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(r.url)}" target="_blank" rel="noopener">Abrir PDF</a>` : '<span class="muted" style="font-size:13px">(En modo demo no se genera el PDF)</span>'}
       ${r.url && c.email ? `<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);background:var(--bg)" href="mailto:${esc(c.email)}?subject=${encodeURIComponent('Factura ' + r.numero)}&body=${encodeURIComponent('Hola,\n\nTe envío la factura ' + r.numero + ':\n' + r.url + '\n\nUn saludo,\n' + cfgF('emisor_nombre', ''))}">Enviar enlace al cliente</a>` : ''}
+      ${FA.fromMes ? `<button class="btn dark" onclick="sheetFacturasMes()">Siguiente factura ›</button>` : ''}
+      ${r.url ? `<button class="btn" style="background:var(--bg)" onclick="go('facturas');closeSheet()">Ver todas las facturas</button>` : ''}
       <span class="muted" style="font-size:12px">Guardada en Drive → Agenda Finanzas → ${esc(d.fecha.slice(0, 4))} → T${Math.ceil(+d.fecha.slice(5, 7) / 3)} → Facturas emitidas. Le llegará a tu gestor cuando envíes el trimestre.</span></div>`);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Generar factura'; }
 }
