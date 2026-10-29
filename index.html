@@ -178,7 +178,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v45';
+const VERSION = 'v46';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -551,6 +551,7 @@ function afterRender(r) {
   if (r === 'mes') { if (S.fin && S.month + '-01' < addDays(todayStr(), -120) && S._bonoLim !== 'todo') { S._bonoLim = 'todo'; S.bonoRange = ''; } loadMonthEv(S.month); loadBonoEv(); }
   if (r === 'bonos' || r === 'clientes') loadBonoEv();
   if (ROUTES[r] === 'fin') loadFin();
+  if (r === 'ajustes' && !S.fin) loadFin();
   if (r === 'hoy' && !afterRender._scrolled) {
     afterRender._scrolled = true;
     const n = document.querySelector('.nowline'); if (n) n.scrollIntoView({ block: 'center' });
@@ -1107,7 +1108,7 @@ function viewFacturas() {
     <div class="hero" style="gap:8px"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Facturado en ${y} · ${L.length} facturas</span><span class="big" style="font-size:34px">${eur0(tot)}</span>
       <div class="grid2"><div class="mini"><span>Cobrado</span><span style="color:#7FD1AE">${eur0(cob)}</span></div><div class="mini"><span>Pendiente de cobro</span><span>${eur0(tot - cob)}</span></div></div></div>
     ${porFac ? `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--warnbg)" onclick="sheetFacturasMes()"><span style="color:var(--warn);font-weight:700;font-size:13px">${porFac} cobros sin factura · facturar</span><span>›</span></button>` : ''}
-    <button class="btn primary" onclick="sheetFacturasMes()">+ Hacer facturas</button>
+    <div class="grid2"><button class="btn primary" onclick="sheetFacturasMes()">+ Hacer facturas</button><button class="btn dark" onclick="FN=null;sheetFacturaNueva()">Factura a un cliente</button></div>
     <div class="card" style="padding:4px 14px">${L.length ? L.map(({ i, f, fecha, total, ids, cob }) => { const c = clienteOf(i.cliente_id), d = parseD(fecha);
       return `<div class="li" style="flex-wrap:wrap;gap:8px">
         <span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(i.num_factura || f.numero || 'Sin nº')} · ${esc((f.cliente && f.cliente.nombre) || c.nombre || '—')}</b>
@@ -1799,6 +1800,14 @@ function viewAjustes() {
       <label class="f">Calendario para eventos nuevos<input class="in" style="background:var(--bg)" data-k="calendario_nuevos" value="${esc(cfg.calendario_nuevos)}" placeholder="Vacío = el principal"></label>
       <button class="btn dark" onclick="guardarEmisor()">Guardar</button>
     </div>` : ''}
+    ${S.fin ? (() => { const L = [...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+      return `<div class="card stack" style="gap:8px">
+      <b>Clientes</b>
+      <span class="muted" style="font-size:12px">Da de alta a tus clientes con sus datos fiscales. Al generar una factura ya salen predefinidos y rellenados.</span>
+      <div class="col" style="gap:0">${L.length ? L.map(c => { const fal = (c.factura || 'si') !== 'no' && (!c.nif || !c.direccion);
+        return `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(metaOf(c.id).nfiscal || c.nombre)}</b><span class="muted" style="font-size:12px">${c.nif ? 'NIF/CIF ' + esc(c.nif) : 'Sin NIF'}${c.email ? ' · ' + esc(c.email) : ''}</span></span>${fal ? '<span class="badge b-warn">Faltan datos</span>' : ''}<span class="muted" style="font-size:18px">›</span></button>`; }).join('') : '<div class="empty" style="padding:14px">Aún no tienes clientes.</div>'}</div>
+      <button class="btn dark" onclick="sheetCliente()">+ Añadir cliente</button>
+    </div>`; })() : ''}
     <div class="card stack" style="gap:8px">
       <b>Datos de facturación</b>
       <span class="muted" style="font-size:12px">Salen en tus facturas. El gestor recibe el trimestre desde Resumen → Gestor.</span>
@@ -1894,6 +1903,32 @@ function sheetFactura(ingId) {
     iva: String(c.iva !== undefined && c.iva !== '' ? num(c.iva) : num(cfgF('iva_defecto', 21))), irpf: String(emp ? num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)) : 0),
     lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
   renderFactura();
+}
+/* ---- factura nueva a un cliente ya dado de alta (sin cobro previo): crea el cobro pendiente y abre la factura ---- */
+let FN = null;
+function sheetFacturaNueva() {
+  if (!S.fin) return;
+  FN = FN || { cid: '', imp: '', det: '' };
+  const L = [...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+  openSheet(`<form class="stack" onsubmit="crearFacturaNueva(event)">
+    <h1 style="font-size:24px">Factura a un cliente</h1>
+    ${L.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Cliente</span><div class="chips" style="flex-wrap:wrap">${L.map(c => `<button type="button" class="chip ${FN.cid === c.id ? 'on' : ''}" style="${FN.cid === c.id ? '' : 'background:var(--bg)'}" onclick="fnPick('${c.id}')">${esc(c.nombre)}</button>`).join('')}</div></div>` : '<div class="empty" style="padding:10px">Aún no tienes clientes. Añade el primero y vuelve aquí.</div>'}
+    <button type="button" class="btn" style="background:var(--bg)" onclick="FN=null;sheetCliente()">+ Nuevo cliente</button>
+    <label class="f">Concepto<input class="in" value="${esc(FN.det)}" oninput="FN.det=this.value" placeholder="Servicios de entrenamiento"></label>
+    <label class="f">Importe (€)<input class="in" inputmode="decimal" value="${esc(FN.imp)}" oninput="FN.imp=this.value" placeholder="Lo que le cobras"></label>
+    <span class="muted" style="font-size:12px">Se apunta como cobro pendiente de este cliente y pasas a la factura con sus datos ya rellenados.</span>
+    <button class="btn dark" type="submit">Continuar a la factura</button>
+  </form>`);
+}
+function fnPick(id) { const c = clienteOf(id); FN.cid = id; if (!FN.imp) FN.imp = String(num(metaOf(id).psuelta) || num(c.tarifa) || '') || ''; sheetFacturaNueva(); }
+async function crearFacturaNueva(ev) {
+  ev.preventDefault();
+  if (!FN.cid) { toast('Elige un cliente'); return; }
+  const imp = num(FN.imp); if (!imp) { toast('Pon el importe'); return; }
+  const m = metaOf(FN.cid), det = (FN.det || '').trim() || 'Servicios de entrenamiento';
+  const o = { id: uid(), fecha: todayStr(), cliente_id: FN.cid, concepto: det, importe: String(imp), cobrado: 'no', fecha_cobro: '', metodo: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: m.tipo || tiposList()[0], importe: imp, detalle: '' }]) };
+  try { const sv = await saveIng(o); FN = null; sheetFactura(sv.id); FA.fromMes = false; render(); }
+  catch (e) { toast(e.message); }
 }
 /* ---- hacer las facturas del mes: por cliente, juntando sus cobros ---- */
 let FM = null;
