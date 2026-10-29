@@ -178,7 +178,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v48';
+const VERSION = 'v49';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1134,7 +1134,8 @@ function sheetEnviarFac(id) {
     <label class="f">Email del cliente<input class="in" type="email" required value="${esc(EF.email)}" oninput="EF.email=this.value" placeholder="cliente@email.com"></label>
     <label class="f">Mensaje<textarea class="in" style="min-height:150px" oninput="EF.msg=this.value">${esc(EF.msg)}</textarea></label>
     <span class="muted" style="font-size:12px">Se envía desde tu Gmail con el PDF adjunto.${f.enviada ? ' Ya se envió el ' + fmtLong(f.enviada) + (f.enviada_a ? ' a ' + esc(f.enviada_a) : '') + '.' : ''}</span>
-    <button class="btn dark" type="submit" id="efBtn">Enviar</button></form>`);
+    <button class="btn dark" type="submit" id="efBtn">Enviar</button>
+    <button class="btn" type="button" style="background:var(--bg)" onclick="sheetEditarFactura('${id}')">Editar la factura antes de enviar</button></form>`);
 }
 async function enviarFac(ev) {
   ev.preventDefault(); const b = $('#efBtn'); b.disabled = true; b.innerHTML = '<span class="spin"></span> Enviando…';
@@ -2005,7 +2006,9 @@ function renderFactura() {
   const falta = [!cfgF('emisor_nif', '') && 'tu NIF', !cfgF('emisor_direccion', '') && 'tu dirección', !FA.nif && 'el NIF del cliente'].filter(Boolean);
   openSheet(`<form class="stack" onsubmit="generarFactura(event)">
     <h1 style="font-size:24px">${FA.edit ? 'Editar factura ' + esc(FA.numero) : 'Factura · ' + esc(c.nombre)}</h1>
-    ${FA.edit ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">${FA.enviada ? 'Esta factura ya se envió' + (FA.enviada.length >= 10 ? ' el ' + fmtLong(FA.enviada) : '') + '. Si la cambias, tendrás que reenviarla. ' : ''}Conserva el nº ${esc(FA.numero)}. Si ya la presentaste al gestor o a Hacienda, lo correcto es una factura rectificativa: consúltalo con él.</div>` : ''}
+    ${(() => { if (!FA.edit) return ''; const q = trimOf(FA.fecha), env = FA.enviada, gest = cfgF('enviado_' + q.anio + q.t, '');
+      const msg = [env ? 'Esta factura ya se envió' + (String(env).length >= 10 ? ' el ' + fmtLong(env) : '') + ': si la cambias, tendrás que reenviarla.' : '', gest ? 'El ' + q.t + ' ' + q.anio + ' ya se envió al gestor: avísale de los cambios (puede hacer falta una factura rectificativa).' : ''].filter(Boolean).join(' ');
+      return msg ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">${esc(msg)}</div>` : `<span class="muted" style="font-size:13px">Conserva el nº ${esc(FA.numero)}. Aún no la has enviado: cámbiala todo lo que necesites.</span>`; })()}
     ${falta.length ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">Falta ${falta.join(', ')}.${!cfgF('emisor_nif', '') ? ' Tus datos se ponen en Ajustes → Datos de facturación.' : ''}</div>` : ''}
     <label class="f">Nombre en la factura<input class="in" required value="${esc(FA.nombre)}" oninput="FA.nombre=this.value" placeholder="Nombre o razón social"></label>
     <div class="grid2"><label class="f">NIF/CIF cliente<input class="in" value="${esc(FA.nif)}" oninput="FA.nif=this.value"></label><label class="f">Fecha factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label></div>
@@ -2067,7 +2070,8 @@ async function generarFactura(ev) {
     openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} ${FA.edit ? 'actualizada' : 'creada'} ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>
       ${r.url ? `<a class="btn primary" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(r.url)}" target="_blank" rel="noopener">Abrir PDF</a>` : '<span class="muted" style="font-size:13px">(En modo demo no se genera el PDF)</span>'}
       ${r.url && c.email ? `<a class="btn" style="display:flex;align-items:center;justify-content:center;text-decoration:none;color:var(--ink);background:var(--bg)" href="mailto:${esc(c.email)}?subject=${encodeURIComponent('Factura ' + r.numero)}&body=${encodeURIComponent('Hola,\n\nTe envío la factura ' + r.numero + ':\n' + r.url + '\n\nUn saludo,\n' + cfgF('emisor_nombre', ''))}">Enviar enlace al cliente</a>` : ''}
-      ${FA.fromMes ? `<button class="btn dark" onclick="sheetFacturasMes()">Siguiente factura ›</button>` : ''}
+      <button class="btn" style="background:var(--bg)" onclick="sheetEditarFactura('${FA.ingId}')">Editar la factura antes de enviarla</button>
+      ${FA.fromMes && !FA.edit ? `<button class="btn dark" onclick="sheetFacturasMes()">Siguiente factura ›</button>` : ''}
       ${r.url ? `<button class="btn" style="background:var(--bg)" onclick="go('facturas');closeSheet()">Ver todas las facturas</button>` : ''}
       <span class="muted" style="font-size:12px">Guardada en Drive → Agenda Finanzas → ${esc(d.fecha.slice(0, 4))} → T${Math.ceil(+d.fecha.slice(5, 7) / 3)} → Facturas emitidas. Le llegará a tu gestor cuando envíes el trimestre.</span></div>`);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = FA.edit ? 'Guardar cambios' : 'Generar factura'; }
