@@ -118,6 +118,7 @@ function handle_(p) {
       deleteIngreso: function () { return remove_('Ingresos', data.id); },
       saveGasto: function () { return upsert_('Gastos', data); },
       crearFactura: function () { return crearFactura_(data); },
+      editarFactura: function () { return editarFactura_(data); },
       subirAdjunto: function () { return subirAdjunto_(data); },
       enviarGestor: function () { return enviarGestor_(data); },
       previewFactura: function () { return { html: facturaHTML_(data) }; },
@@ -481,6 +482,18 @@ function crearFactura_(d) {
     }
     return { numero: d.numero, url: file.getUrl(), datos: datos };
   } finally { lock.releaseLock(); }
+}
+
+// d: igual que crearFactura_ pero con d.numero e d.ingId: mismo número, PDF nuevo; el anterior va a la papelera de Drive
+function editarFactura_(d) {
+  if (!d.ingId || !d.numero) throw new Error('Falta la factura que hay que editar');
+  var rows = readRows_('Ingresos'), old = null;
+  for (var i = 0; i < rows.length; i++) if (rows[i].id === d.ingId) { old = rows[i]; break; }
+  if (!old) throw new Error('No encuentro esa factura');
+  var fileId = ''; try { fileId = JSON.parse(old.factura_datos || '{}').fileId || ''; } catch (e) {}
+  var r = crearFactura_(d);   // primero el nuevo PDF; solo si sale bien se retira el anterior
+  if (fileId) { try { DriveApp.getFileById(fileId).setTrashed(true); } catch (e) {} }
+  return r;
 }
 
 /* ============ ENVIAR UNA FACTURA AL CLIENTE ============ */
