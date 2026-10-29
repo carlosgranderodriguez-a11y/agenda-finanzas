@@ -27,7 +27,7 @@ En la ficha de cada cliente: nombre fiscal, NIF/CIF, dirección y email. Al gene
 Al generar una factura eliges Transferencia, Bizum o Efectivo. Con transferencia sale tu IBAN (el de Ajustes → Datos de facturación, editable en esa factura). Para que el PDF y el email lo reflejen hay que actualizar el backend (ver «Cambios en el backend»).
 
 ## Editar facturas hechas
-Facturas → botón **Editar** en cada factura: cambia conceptos, importes, fecha, datos del cliente, IVA/IRPF o forma de pago. Conserva el número y genera un PDF nuevo; el anterior pasa a la papelera de Drive (requiere el backend actualizado; si no, se crea el PDF nuevo y el viejo se queda en Drive).
+Facturas → botón **Editar** en cada factura (también desde «Factura creada» y «Enviar»). Puedes **cambiar el cliente**: al elegirlo se rellenan nombre fiscal, NIF, dirección, email e IVA/IRPF de su ficha, y opcionalmente se pasa el cobro a ese cliente. Además puedes cambiar: cambia conceptos, importes, fecha, datos del cliente, IVA/IRPF o forma de pago. Conserva el número y genera un PDF nuevo; el anterior pasa a la papelera de Drive (requiere el backend actualizado; si no, se crea el PDF nuevo y el viejo se queda en Drive).
 
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.

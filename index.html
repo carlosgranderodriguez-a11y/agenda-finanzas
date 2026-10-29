@@ -178,7 +178,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v49';
+const VERSION = 'v50';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1908,7 +1908,7 @@ function sheetFactura(ingId) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
   const c = clienteOf(i.cliente_id), emp = c.tipo_fiscal === 'empresa';
   const L = lineasOf(i);
-  FA = { ingId, cid: c.id, fecha: todayStr(), nombre: metaOf(c.id).nfiscal || c.nombre || '', nif: c.nif || '', direccion: c.direccion || '', email: c.email || '', pago: ['transferencia', 'bizum', 'efectivo'].includes(metodoHabitual(c.id)) ? metodoHabitual(c.id) : 'transferencia', iban: cfgF('emisor_iban', ''), incluido: !emp,
+  FA = { ingId, cid: c.id, cid0: c.id, fecha: todayStr(), nombre: metaOf(c.id).nfiscal || c.nombre || '', nif: c.nif || '', direccion: c.direccion || '', email: c.email || '', pago: ['transferencia', 'bizum', 'efectivo'].includes(metodoHabitual(c.id)) ? metodoHabitual(c.id) : 'transferencia', iban: cfgF('emisor_iban', ''), incluido: !emp,
     iva: String(c.iva !== undefined && c.iva !== '' ? num(c.iva) : num(cfgF('iva_defecto', 21))), irpf: String(emp ? num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)) : 0),
     lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
   renderFactura();
@@ -1943,10 +1943,11 @@ async function crearFacturaNueva(ev) {
 function sheetEditarFactura(id) {
   const i = ING().find(x => x.id === id); if (!i) return;
   const f = fdOf(i), c = clienteOf(i.cliente_id), cl = f.cliente || {}, p = f.pago || null;
+  const dest = (S.fin.clientes.find(x => cl.nif && x.nif && String(x.nif).trim().toLowerCase() === String(cl.nif).trim().toLowerCase()) || S.fin.clientes.find(x => cl.nombre && (metaOf(x.id).nfiscal || x.nombre) === cl.nombre) || c);
   const hab = metodoHabitual(c.id), ids = ING().filter(x => x.num_factura && x.num_factura === i.num_factura).map(x => x.id).filter(x => x !== id);
   const L = Array.isArray(f.lineas) && f.lineas.length ? f.lineas.map(l => ({ concepto: l.concepto || '', importe: String(num(l.base)) }))
     : lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) }));
-  FA = { edit: true, numero: f.numero || i.num_factura, enviada: f.enviada || '', ingId: id, ingIds: [id].concat(ids), cid: c.id, fecha: f.fecha || i.fecha || todayStr(),
+  FA = { edit: true, numero: f.numero || i.num_factura, enviada: f.enviada || '', ingId: id, ingIds: [id].concat(ids), cid: dest.id, cid0: c.id, fecha: f.fecha || i.fecha || todayStr(),
     nombre: cl.nombre || metaOf(c.id).nfiscal || c.nombre || '', nif: cl.nif != null ? cl.nif : (c.nif || ''), direccion: cl.direccion != null ? cl.direccion : (c.direccion || ''), email: cl.email != null ? cl.email : (c.email || ''),
     pago: p ? p.metodo : (['transferencia', 'bizum', 'efectivo'].includes(hab) ? hab : 'transferencia'), iban: p ? (p.iban || '') : cfgF('emisor_iban', ''),
     incluido: false, iva: String(num(f.iva_pct !== undefined ? f.iva_pct : (f.totales ? f.iva : cfgF('iva_defecto', 21)))), irpf: String(num(f.irpf_pct !== undefined ? f.irpf_pct : (f.totales ? f.irpf : 0))), lineas: L };
@@ -1993,6 +1994,15 @@ function sheetFacturaMulti(cid, ids) {
   FA.lineas = [].concat(...I.map(i => lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo || i.concepto || 'Servicios de entrenamiento', mesDe(i.fecha)].filter(Boolean).join(' · '), importe: String(l.importe) }))));
   renderFactura();
 }
+function faPickCliente(id) {
+  const c = clienteOf(id), m = metaOf(id); FA.cid = id; FA.mover = false;
+  FA.nombre = m.nfiscal || c.nombre || ''; FA.nif = c.nif || ''; FA.direccion = c.direccion || ''; FA.email = c.email || '';
+  if (c.iva !== undefined && c.iva !== '') FA.iva = String(num(c.iva));
+  if (c.tipo_fiscal === 'empresa') FA.irpf = String(num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)));
+  else if (c.tipo_fiscal === 'particular') FA.irpf = '0';
+  if (!FA.edit) FA.incluido = c.tipo_fiscal !== 'empresa';
+  renderFactura(); toast('Datos de ' + c.nombre + ' cargados');
+}
 function faCalc() {
   const iva = num(FA.iva), irpf = num(FA.irpf), k = FA.incluido ? 1 + iva / 100 - irpf / 100 : 1;
   const lineas = FA.lineas.map(l => ({ concepto: l.concepto, base: Math.round(num(l.importe) / k * 100) / 100 }));
@@ -2010,6 +2020,8 @@ function renderFactura() {
       const msg = [env ? 'Esta factura ya se envió' + (String(env).length >= 10 ? ' el ' + fmtLong(env) : '') + ': si la cambias, tendrás que reenviarla.' : '', gest ? 'El ' + q.t + ' ' + q.anio + ' ya se envió al gestor: avísale de los cambios (puede hacer falta una factura rectificativa).' : ''].filter(Boolean).join(' ');
       return msg ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">${esc(msg)}</div>` : `<span class="muted" style="font-size:13px">Conserva el nº ${esc(FA.numero)}. Aún no la has enviado: cámbiala todo lo que necesites.</span>`; })()}
     ${falta.length ? `<div style="background:var(--warnbg);color:var(--warn);border-radius:12px;padding:8px 12px;font-size:13px;font-weight:600">Falta ${falta.join(', ')}.${!cfgF('emisor_nif', '') ? ' Tus datos se ponen en Ajustes → Datos de facturación.' : ''}</div>` : ''}
+    <label class="f">Cliente (al elegirlo se rellenan sus datos)<select class="in" onchange="faPickCliente(this.value)" style="appearance:auto;-webkit-appearance:menulist">${[...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))).map(x => `<option value="${esc(x.id)}" ${x.id === FA.cid ? 'selected' : ''}>${esc(x.nombre)} · ${x.nif ? esc(x.nif) : 'sin NIF'}</option>`).join('')}</select></label>
+    ${FA.cid !== FA.cid0 ? `<label class="row" style="gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" ${FA.mover ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--dark)" onchange="FA.mover=this.checked"><span>Pasar también el cobro a <b>${esc(c.nombre)}</b>. <span class="muted">Si no, el cobro sigue siendo de ${esc(clienteOf(FA.cid0).nombre)} y solo cambia a quién va dirigida la factura.</span></span></label>` : ''}
     <label class="f">Nombre en la factura<input class="in" required value="${esc(FA.nombre)}" oninput="FA.nombre=this.value" placeholder="Nombre o razón social"></label>
     <div class="grid2"><label class="f">NIF/CIF cliente<input class="in" value="${esc(FA.nif)}" oninput="FA.nif=this.value"></label><label class="f">Fecha factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label></div>
     <label class="f">Dirección cliente<textarea class="in" oninput="FA.direccion=this.value" placeholder="Opcional para particulares">${esc(FA.direccion)}</textarea></label>
@@ -2061,11 +2073,13 @@ async function generarFactura(ev) {
     else if (isDemo()) { const n = +cfgF('siguiente_numero', 1) || 1; r = { numero: (cfgF('serie_factura', d.fecha.slice(0, 4) + '-')) + String(n).padStart(3, '0'), url: '', datos: JSON.stringify(Object.assign({ numero: '', base: faCalc().base, total: faCalc().total }, d)) }; S.fin.config.siguiente_numero = String(n + 1); }
     else { await flushQueue(); r = FA.edit ? await editarFacturaApi(d) : await apiRaw('crearFactura', { data: d }); }
     const i = ING().find(x => x.id === FA.ingId);
-    Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos });
+    const mover = FA.cid !== FA.cid0 && FA.mover;
+    Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos }, mover ? { cliente_id: FA.cid } : {});
     // el resto de cobros de esta factura quedan marcados con el mismo número (sin repetir importes para el gestor)
-    for (const id of (FA.ingIds || []).slice(1)) { const x = ING().find(y => y.id === id); if (!x) continue; Object.assign(x, { facturado: 'si', num_factura: r.numero, factura_url: r.url || '', factura_datos: JSON.stringify({ numero: r.numero, ref: FA.ingId }) }); api('saveIngreso', { data: x }).catch(() => {}); }
+    for (const id of (FA.ingIds || []).slice(1)) { const x = ING().find(y => y.id === id); if (!x) continue; Object.assign(x, { facturado: 'si', num_factura: r.numero, factura_url: r.url || '', factura_datos: JSON.stringify({ numero: r.numero, ref: FA.ingId }) }, mover ? { cliente_id: FA.cid } : {}); api('saveIngreso', { data: x }).catch(() => {}); }
     if (isDemo()) await api('saveIngreso', { data: i });
-    else if (!FA.edit) { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
+    else if (mover) await api('saveIngreso', { data: i });
+    if (!isDemo() && !FA.edit) { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
     LS.set('af_fin_cache', S.fin); render();
     openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} ${FA.edit ? 'actualizada' : 'creada'} ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>
       ${r.url ? `<a class="btn primary" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(r.url)}" target="_blank" rel="noopener">Abrir PDF</a>` : '<span class="muted" style="font-size:13px">(En modo demo no se genera el PDF)</span>'}
