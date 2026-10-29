@@ -1926,7 +1926,7 @@ async function crearFacturaNueva(ev) {
   if (!FN.cid) { toast('Elige un cliente'); return; }
   const imp = num(FN.imp); if (!imp) { toast('Pon el importe'); return; }
   const m = metaOf(FN.cid), det = (FN.det || '').trim() || 'Servicios de entrenamiento';
-  const o = { id: uid(), fecha: todayStr(), cliente_id: FN.cid, concepto: det, importe: String(imp), cobrado: 'no', fecha_cobro: '', metodo: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: m.tipo || tiposList()[0], importe: imp, detalle: '' }]) };
+  const o = { id: uid(), fecha: todayStr(), cliente_id: FN.cid, concepto: det, importe: String(imp), cobrado: 'no', fecha_cobro: '', metodo: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: m.tipo || '', importe: imp, detalle: '' }]) };
   try { const sv = await saveIng(o); FN = null; sheetFactura(sv.id); FA.fromMes = false; render(); }
   catch (e) { toast(e.message); }
 }
