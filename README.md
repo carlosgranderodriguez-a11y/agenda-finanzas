@@ -23,6 +23,9 @@ Finanzas → **Sesiones del mes**: calendario del mes con las sesiones de cada d
 ## Datos de facturación de los clientes
 En la ficha de cada cliente: nombre fiscal, NIF/CIF, dirección y email. Al generar una factura, lo que cambies en esos campos se guarda en la ficha y se rellena solo en las siguientes.
 
+## Forma de pago en las facturas
+Al generar una factura eliges Transferencia, Bizum o Efectivo. Con transferencia sale tu IBAN (el de Ajustes → Datos de facturación, editable en esa factura). Para que el PDF y el email lo reflejen hay que actualizar el backend (ver «Cambios en el backend»).
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 

@@ -178,7 +178,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v46';
+const VERSION = 'v47';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1118,10 +1118,18 @@ function viewFacturas() {
       </div>`; }).join('') : `<div class="empty">No hay facturas en ${y}. Pulsa «+ Hacer facturas».</div>`}</div>
   </div>`;
 }
+// texto de cómo paga el cliente (facturas antiguas sin forma de pago: IBAN de Ajustes, como antes)
+function pagoTexto(p, cfg) {
+  if (!p) return cfg.emisor_iban ? 'IBAN para el pago: ' + cfg.emisor_iban : '';
+  if (p.metodo === 'transferencia') return p.iban ? 'IBAN para el pago: ' + p.iban : '';
+  if (p.metodo === 'bizum') return 'Forma de pago: Bizum';
+  if (p.metodo === 'efectivo') return 'Forma de pago: efectivo';
+  return '';
+}
 let EF = null;
 function sheetEnviarFac(id) {
   const i = ING().find(x => x.id === id), f = fdOf(i), c = clienteOf(i.cliente_id), cfg = S.fin.config || {};
-  EF = { id, email: (f.cliente && f.cliente.email) || c.email || '', msg: 'Hola,\n\nTe adjunto la factura ' + (f.numero || i.num_factura) + ' por importe de ' + eurRaw(num(f.total) || num(i.importe)) + '.' + (cfg.emisor_iban ? '\n\nIBAN para el pago: ' + cfg.emisor_iban : '') + '\n\nUn saludo,\n' + (cfg.emisor_nombre || '') };
+  EF = { id, email: (f.cliente && f.cliente.email) || c.email || '', msg: 'Hola,\n\nTe adjunto la factura ' + (f.numero || i.num_factura) + ' por importe de ' + eurRaw(num(f.total) || num(i.importe)) + '.' + (pagoTexto(f.pago, cfg) ? '\n\n' + pagoTexto(f.pago, cfg) : '') + '\n\nUn saludo,\n' + (cfg.emisor_nombre || '') };
   openSheet(`<form class="stack" onsubmit="enviarFac(event)"><h1 style="font-size:22px">Enviar factura ${esc(f.numero || i.num_factura)}</h1>
     <label class="f">Email del cliente<input class="in" type="email" required value="${esc(EF.email)}" oninput="EF.email=this.value" placeholder="cliente@email.com"></label>
     <label class="f">Mensaje<textarea class="in" style="min-height:150px" oninput="EF.msg=this.value">${esc(EF.msg)}</textarea></label>
@@ -1899,7 +1907,7 @@ function sheetFactura(ingId) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
   const c = clienteOf(i.cliente_id), emp = c.tipo_fiscal === 'empresa';
   const L = lineasOf(i);
-  FA = { ingId, cid: c.id, fecha: todayStr(), nombre: metaOf(c.id).nfiscal || c.nombre || '', nif: c.nif || '', direccion: c.direccion || '', email: c.email || '', incluido: !emp,
+  FA = { ingId, cid: c.id, fecha: todayStr(), nombre: metaOf(c.id).nfiscal || c.nombre || '', nif: c.nif || '', direccion: c.direccion || '', email: c.email || '', pago: ['transferencia', 'bizum', 'efectivo'].includes(metodoHabitual(c.id)) ? metodoHabitual(c.id) : 'transferencia', iban: cfgF('emisor_iban', ''), incluido: !emp,
     iva: String(c.iva !== undefined && c.iva !== '' ? num(c.iva) : num(cfgF('iva_defecto', 21))), irpf: String(emp ? num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)) : 0),
     lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
   renderFactura();
@@ -1990,6 +1998,10 @@ function renderFactura() {
       <div class="col" style="gap:6px"><span class="eyebrow">IVA</span><div class="opt">${[21, 10, 0].map(v => `<button type="button" class="${num(FA.iva) === v ? 'on' : ''}" onclick="FA.iva='${v}';renderFactura()">${v ? v + '%' : 'Exento'}</button>`).join('')}</div></div>
       <div class="col" style="gap:6px"><span class="eyebrow">IRPF</span><div class="opt">${[15, 7, 0].map(v => `<button type="button" class="${num(FA.irpf) === v ? 'on' : ''}" onclick="FA.irpf='${v}';renderFactura()">${v}%</button>`).join('')}</div></div>
     </div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Forma de pago</span>
+      <div class="opt">${[['transferencia', 'Transferencia'], ['bizum', 'Bizum'], ['efectivo', 'Efectivo']].map(([v, l]) => `<button type="button" class="${FA.pago === v ? 'on' : ''}" onclick="FA.pago='${v}';renderFactura()">${l}</button>`).join('')}</div>
+      ${FA.pago === 'transferencia' ? `<label class="f">Cuenta (IBAN)<input class="in" value="${esc(FA.iban)}" oninput="FA.iban=this.value" placeholder="ES00 0000 0000 0000 0000 0000" autocapitalize="characters" spellcheck="false"></label>
+      <span class="muted" style="font-size:12px">${cfgF('emisor_iban', '') ? 'Viene de Ajustes → Datos de facturación. Si lo cambias aquí, solo vale para esta factura.' : '<b style="color:var(--warn)">No tienes IBAN guardado.</b> Ponlo en Ajustes → Datos de facturación para que salga solo en todas.'}</span>` : ''}</div>
     <div class="totals" id="faTot">${faTotHTML(t)}</div>
     <div class="grid2"><button type="button" class="btn" style="background:var(--bg)" onclick="previewFactura()">Vista previa</button><button class="btn primary" type="submit" id="faBtn">Generar factura</button></div>
     <span class="muted" style="font-size:12px">Se numera sola (siguiente: ${esc(cfgF('serie_factura', FA.fecha.slice(0, 4) + '-'))}${String(cfgF('siguiente_numero', '1')).padStart(3, '0')}), se guarda en PDF en tu Google Drive (carpeta del trimestre) y el ingreso queda como facturado.</span>
@@ -1999,7 +2011,7 @@ function faTotHTML(t) { return `<div class="r"><span>Base imponible</span><span>
 function updFa() { const e = $('#faTot'); if (e) e.innerHTML = faTotHTML(faCalc()); }
 function faPayload() {
   const c = clienteOf(FA.cid), t = faCalc();
-  return { ingId: FA.ingId, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
+  return { ingId: FA.ingId, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas, pago: { metodo: FA.pago, iban: FA.pago === 'transferencia' ? (FA.iban || '').replace(/\s+/g, ' ').trim() : '' }, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
 }
 async function previewFactura() {
   try {
@@ -2011,6 +2023,7 @@ async function previewFactura() {
 async function generarFactura(ev) {
   ev.preventDefault();
   if (!FA.lineas.some(l => num(l.importe))) { toast('Pon algún importe'); return; }
+  if (FA.pago === 'transferencia' && !(FA.iban || '').trim()) { toast('Pon la cuenta (IBAN) o elige otra forma de pago'); return; }
   const btn = $('#faBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> Generando…';
   try {
     const d = faPayload(), c = clienteOf(FA.cid);

@@ -414,6 +414,22 @@ function calcFactura_(d) {
   var iva = Math.round(base * num_(d.iva)) / 100, irpf = Math.round(base * num_(d.irpf)) / 100;
   return { base: base, iva: iva, irpf: irpf, total: Math.round((base + iva - irpf) * 100) / 100 };
 }
+// forma de pago que sale al pie de la factura (sin d.pago: como siempre, IBAN de Config si lo hay)
+function pagoHTML_(pg, c) {
+  var st = '<p style="margin-top:26px">';
+  if (!pg) return c.emisor_iban ? st + 'Forma de pago: transferencia a <b>' + esc_(c.emisor_iban) + '</b></p>' : '';
+  if (pg.metodo === 'transferencia') return pg.iban ? st + 'Forma de pago: transferencia a <b>' + esc_(pg.iban) + '</b></p>' : st + 'Forma de pago: transferencia bancaria</p>';
+  if (pg.metodo === 'bizum') return st + 'Forma de pago: Bizum</p>';
+  if (pg.metodo === 'efectivo') return st + 'Forma de pago: efectivo</p>';
+  return '';
+}
+function pagoTexto_(pg, c) {
+  if (!pg) return c.emisor_iban ? 'IBAN para el pago: ' + c.emisor_iban : '';
+  if (pg.metodo === 'transferencia') return pg.iban ? 'IBAN para el pago: ' + pg.iban : '';
+  if (pg.metodo === 'bizum') return 'Forma de pago: Bizum';
+  if (pg.metodo === 'efectivo') return 'Forma de pago: efectivo';
+  return '';
+}
 function facturaHTML_(d) {
   var c = getConfig_(), t = calcFactura_(d), cl = d.cliente || {};
   var f = String(d.fecha || '').split('-'); var fecha = f.length === 3 ? f[2] + '/' + f[1] + '/' + f[0] : d.fecha;
@@ -435,7 +451,7 @@ function facturaHTML_(d) {
     (num_(d.irpf) ? '<tr><td>Retención IRPF ' + num_(d.irpf) + '%</td><td class="n">− ' + eur_(t.irpf) + '</td></tr>' : '') +
     '<tr class="g"><td>Total</td><td class="n">' + eur_(t.total) + '</td></tr></table>' +
     (!num_(d.iva) ? '<p class="m" style="margin-top:22px;font-size:9pt">Operación exenta de IVA.</p>' : '') +
-    (c.emisor_iban ? '<p style="margin-top:26px">Forma de pago: transferencia a <b>' + esc_(c.emisor_iban) + '</b></p>' : '') +
+    pagoHTML_(d.pago, c) +
     (c.nota_factura ? '<p class="m" style="font-size:9pt;margin-top:14px">' + esc_(c.nota_factura) + '</p>' : '') +
     '</body></html>';
 }
@@ -455,7 +471,7 @@ function crearFactura_(d) {
     var q = trim_(d.fecha);
     var file = folder_([q.anio, q.t, 'Facturas emitidas']).createFile(blob);
     var t = calcFactura_(d);
-    var datos = JSON.stringify({ numero: d.numero, fecha: d.fecha, base: t.base, iva_pct: num_(d.iva), iva: t.iva, irpf_pct: num_(d.irpf), irpf: t.irpf, total: t.total, cliente: d.cliente, lineas: d.lineas, fileId: file.getId() });
+    var datos = JSON.stringify({ numero: d.numero, fecha: d.fecha, base: t.base, iva_pct: num_(d.iva), iva: t.iva, irpf_pct: num_(d.irpf), irpf: t.irpf, total: t.total, cliente: d.cliente, lineas: d.lineas, pago: d.pago || null, fileId: file.getId() });
     if (d.ingId) {
       var rows = readRows_('Ingresos');
       for (var i = 0; i < rows.length; i++) if (rows[i].id === d.ingId) {
@@ -479,7 +495,7 @@ function enviarFactura_(d) {
   var file = fd.fileId ? DriveApp.getFileById(fd.fileId) : null;
   if (!file) throw new Error('No encuentro el PDF de la factura en Drive');
   var asunto = 'Factura ' + fd.numero + (c.emisor_nombre ? ' · ' + c.emisor_nombre : '');
-  var cuerpo = (d.mensaje || ('Hola,\n\nTe adjunto la factura ' + fd.numero + ' por importe de ' + eur_(fd.total) + ' €.' + (c.emisor_iban ? '\n\nIBAN para el pago: ' + c.emisor_iban : '') + '\n\nUn saludo,\n' + (c.emisor_nombre || '')));
+  var cuerpo = (d.mensaje || ('Hola,\n\nTe adjunto la factura ' + fd.numero + ' por importe de ' + eur_(fd.total) + ' €.' + (pagoTexto_(fd.pago, c) ? '\n\n' + pagoTexto_(fd.pago, c) : '') + '\n\nUn saludo,\n' + (c.emisor_nombre || '')));
   MailApp.sendEmail({ to: to, subject: asunto, body: cuerpo, attachments: [file.getBlob()], name: c.emisor_nombre || undefined, replyTo: c.emisor_email || undefined });
   fd.enviada = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'); fd.enviada_a = to;
   o.factura_datos = JSON.stringify(fd); upsert_('Ingresos', o);
