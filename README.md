@@ -17,6 +17,12 @@ PWA personal: agenda visual sincronizada con Google Calendar + registro de ingre
 6. En el iPhone: Safari → abre la app → Compartir → *Añadir a pantalla de inicio*.
 7. Widget: instala Scriptable → Ajustes de la app → *Copiar código del widget con mis datos* → pégalo en un script nuevo → añade el widget (pequeño, mediano o grande). En un widget pequeño, Parameter = `finanzas` muestra la facturación del mes.
 
+## Resumen del mes
+Finanzas → **Sesiones del mes**: calendario del mes con las sesiones de cada día (verde = pagada, rojo = hecha y sin pagar, ámbar = pendiente), lista por cliente y ficha de cada día/cliente. Las sesiones salen de los eventos de la agenda con el nombre del cliente y se cruzan con bonos y cobros apuntados.
+
+## Datos de facturación de los clientes
+En la ficha de cada cliente: nombre fiscal, NIF/CIF, dirección y email. Al generar una factura, lo que cambies en esos campos se guarda en la ficha y se rellena solo en las siguientes.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
