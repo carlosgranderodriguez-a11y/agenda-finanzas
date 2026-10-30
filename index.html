@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v51';
+const VERSION = 'v52';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2013,6 +2013,16 @@ function sheetFacturaMulti(cid, ids) {
   FA.lineas = [].concat(...I.map(i => lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo || i.concepto || 'Servicios de entrenamiento', mesDe(i.fecha)].filter(Boolean).join(' · '), importe: String(l.importe) }))));
   renderFactura();
 }
+// qué le falta al destinatario para una factura correcta
+function faFaltan() {
+  const f = []; if (!(FA.nombre || '').trim()) f.push('el nombre completo'); if (!(FA.nif || '').trim()) f.push('el CIF/NIF'); if (!(FA.direccion || '').trim()) f.push('la dirección');
+  return f;
+}
+function faCliHTML() {
+  const w = t => `<span style="color:var(--bad);font-weight:700">${t}</span>`, n = (FA.nombre || '').trim(), i = (FA.nif || '').trim(), d = (FA.direccion || '').trim();
+  return `<b>${n ? esc(n) : w('Falta el nombre completo')}</b><br>${i ? 'CIF/NIF: ' + esc(i) : w('Falta el CIF/NIF')}<br>${d ? esc(d).replace(/\n/g, '<br>') : w('Falta la dirección')}`;
+}
+function updFaCli() { const e = $('#faCli'); if (e) e.innerHTML = faCliHTML(); }
 function faPickCliente(id) {
   const c = clienteOf(id), m = metaOf(id); FA.cid = id; FA.mover = false;
   FA.nombre = m.nfiscal || c.nombre || ''; FA.nif = c.nif || ''; FA.direccion = c.direccion || ''; FA.email = c.email || '';
@@ -2043,10 +2053,11 @@ function renderFactura() {
       <span class="eyebrow">Facturar a (empresa o cliente)</span>
       <label class="f">Elige un cliente guardado: se rellenan sus datos<select class="in" onchange="faPickCliente(this.value)" style="appearance:auto;-webkit-appearance:menulist">${[...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))).map(x => `<option value="${esc(x.id)}" ${x.id === FA.cid ? 'selected' : ''}>${esc(x.nombre)} · ${x.nif ? esc(x.nif) : 'sin CIF'}</option>`).join('')}</select></label>
       ${FA.cid !== FA.cid0 ? `<label class="row" style="gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" ${FA.mover ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--dark)" onchange="FA.mover=this.checked"><span>Pasar también el cobro a <b>${esc(c.nombre)}</b>. <span class="muted">Si no, el cobro sigue siendo de ${esc(clienteOf(FA.cid0).nombre)} y solo cambia a quién va dirigida la factura.</span></span></label>` : ''}
-      <label class="f">Nombre o razón social<input class="in" required value="${esc(FA.nombre)}" oninput="FA.nombre=this.value" placeholder="Nombre o razón social"></label>
-      <label class="f">CIF / NIF<input class="in" value="${esc(FA.nif)}" oninput="FA.nif=this.value" placeholder="CIF o NIF del cliente" autocapitalize="characters"></label>
-      <label class="f">Dirección<textarea class="in" oninput="FA.direccion=this.value" placeholder="Calle, nº, CP, ciudad">${esc(FA.direccion)}</textarea></label>
+      <label class="f">Nombre completo de la empresa (razón social)<input class="in" required value="${esc(FA.nombre)}" oninput="FA.nombre=this.value;updFaCli()" placeholder="Ej. Best Athletes S.L. (como figura en su CIF)"></label>
+      <label class="f">CIF / NIF<input class="in" value="${esc(FA.nif)}" oninput="FA.nif=this.value;updFaCli()" placeholder="CIF o NIF del cliente" autocapitalize="characters"></label>
+      <label class="f">Dirección fiscal completa<textarea class="in" oninput="FA.direccion=this.value;updFaCli()" placeholder="Calle, nº, CP, ciudad">${esc(FA.direccion)}</textarea></label>
       <label class="f">Email<input class="in" type="email" value="${esc(FA.email)}" oninput="FA.email=this.value" placeholder="Para enviarle la factura"></label>
+      <div class="col" style="gap:4px"><span class="eyebrow">Así saldrá en el PDF</span><div id="faCli" style="background:var(--bg);border-radius:14px;padding:10px 12px;font-size:13px;line-height:1.5">${faCliHTML()}</div></div>
     </div>
     <span class="muted" style="font-size:12px">Emite: ${esc([cfgF('emisor_nombre', ''), cfgF('emisor_nif', '') && 'NIF ' + cfgF('emisor_nif', ''), cfgF('emisor_direccion', '')].filter(Boolean).join(' · ') || 'faltan tus datos')} · se cambia en Ajustes</span>
     <label class="f">Fecha de la factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label>
@@ -2082,6 +2093,8 @@ async function generarFactura(ev) {
   ev.preventDefault();
   if (!FA.lineas.some(l => num(l.importe))) { toast('Pon algún importe'); return; }
   if (FA.pago === 'transferencia' && !(FA.iban || '').trim()) { toast('Pon la cuenta (IBAN) o elige otra forma de pago'); return; }
+  const fal = faFaltan();
+  if (fal.length && !await ask('A la factura le falta ' + fal.join(', ') + ' del cliente. ¿Generarla así?', 'Generar así')) return;
   const btn = $('#faBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span> ' + (FA.edit ? 'Guardando…' : 'Generando…');
   try {
     const d = faPayload(), c = clienteOf(FA.cid);

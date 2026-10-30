@@ -445,7 +445,7 @@ function facturaHTML_(d) {
     '</style></head><body>' +
     '<table class="row"><tr><td style="vertical-align:top"><h1>Factura</h1><div><b>Nº ' + esc_(d.numero || '') + '</b></div><div class="m">Fecha: ' + esc_(fecha) + '</div></td>' +
     '<td style="text-align:right;vertical-align:top;line-height:1.5"><b>' + esc_(c.emisor_nombre) + '</b><br>' + (c.emisor_nif ? 'NIF ' + esc_(c.emisor_nif) + '<br>' : '') + esc_(c.emisor_direccion).replace(/\n/g, '<br>') + (c.emisor_email ? '<br>' + esc_(c.emisor_email) : '') + '</td></tr></table>' +
-    '<div class="box"><span class="m" style="font-size:8.5pt;text-transform:uppercase">Cliente</span><br><b>' + esc_(cl.nombre) + '</b>' + (cl.nif ? '<br>NIF/CIF ' + esc_(cl.nif) : '') + (cl.direccion ? '<br>' + esc_(cl.direccion).replace(/\n/g, '<br>') : '') + '</div>' +
+    '<div class="box"><span class="m" style="font-size:8.5pt;text-transform:uppercase">Facturar a</span><br><b style="font-size:12pt">' + esc_(cl.nombre) + '</b>' + (cl.nif ? '<br>CIF/NIF: ' + esc_(cl.nif) : '') + (cl.direccion ? '<br>' + esc_(cl.direccion).replace(/\n/g, '<br>') : '') + '</div>' +
     '<table class="l"><tr><th>Concepto</th><th class="n">Importe</th></tr>' + rows + '</table>' +
     '<table class="t"><tr><td>Base imponible</td><td class="n">' + eur_(t.base) + '</td></tr>' +
     '<tr><td>IVA ' + num_(d.iva) + '%</td><td class="n">' + eur_(t.iva) + '</td></tr>' +
