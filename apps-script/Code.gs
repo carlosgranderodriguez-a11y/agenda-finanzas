@@ -458,20 +458,20 @@ function facturaHTML_(d) {
   var ver = !!d.ver_sesiones && (d.lineas || []).some(function (l) { return num_(l.cant) > 0; });
   var rows = (d.lineas || []).map(function (l) {
     var q = Math.round(num_(l.cant)), b = num_(l.base);
-    return '<tr><td>' + esc_(l.concepto) + '</td>' + (ver ? '<td class="n">' + (q > 0 ? q : '') + '</td><td class="n">' + (q > 0 ? unit_(b, q) : '') + '</td>' : '') + '<td class="n">' + eur_(b) + '</td></tr>';
+    return '<tr><td>' + esc_(l.concepto) + '</td>' + (ver ? '<td class="c">' + (q > 0 ? q : '') + '</td><td class="c">' + (q > 0 ? unit_(b, q) : '') + '</td>' : '') + '<td class="n">' + eur_(b) + '</td></tr>';
   }).join('');
   return '<html><head><meta charset="utf-8"><style>' +
     'body{font-family:Helvetica,Arial,sans-serif;color:#17181C;font-size:11pt;margin:36px}' +
     'h1{font-size:26pt;margin:0 0 4px;letter-spacing:-.5px}.m{color:#5C5F66}.row{width:100%}' +
     '.box{background:#F4F2ED;border-radius:8px;padding:12px 14px;margin-top:18px}' +
     'table.l{width:100%;border-collapse:collapse;margin-top:26px}table.l th{text-align:left;font-size:8.5pt;text-transform:uppercase;color:#5C5F66;border-bottom:1.5px solid #17181C;padding:6px 0}' +
-    'table.l td{padding:10px 0;border-bottom:1px solid #E2DED5}.n{text-align:right}' +
+    'table.l td{padding:10px 0;border-bottom:1px solid #E2DED5}.n{text-align:right}table.l th.n{text-align:right}table.l th.c,table.l td.c{text-align:center;width:17%}' +
     'table.t{width:46%;margin-left:54%;border-collapse:collapse;margin-top:14px}table.t td{padding:4px 0}table.t .g td{font-size:14pt;font-weight:bold;border-top:1.5px solid #17181C;padding-top:8px}' +
     '</style></head><body>' +
     '<table class="row"><tr><td style="vertical-align:top"><h1>Factura</h1><div><b>Nº ' + esc_(d.numero || '') + '</b></div><div class="m">Fecha: ' + esc_(fecha) + '</div></td>' +
     '<td style="text-align:right;vertical-align:top;line-height:1.5"><b>' + esc_(c.emisor_nombre) + '</b><br>' + (c.emisor_nif ? 'NIF ' + esc_(c.emisor_nif) + '<br>' : '') + esc_(c.emisor_direccion).replace(/\n/g, '<br>') + (c.emisor_email ? '<br>' + esc_(c.emisor_email) : '') + '</td></tr></table>' +
     '<div class="box"><span class="m" style="font-size:8.5pt;text-transform:uppercase">Facturar a</span><br><b style="font-size:12pt">' + esc_(cl.nombre) + '</b>' + (cl.nif ? '<br>CIF/NIF: ' + esc_(cl.nif) : '') + (cl.direccion ? '<br>' + esc_(cl.direccion).replace(/\n/g, '<br>') : '') + '</div>' +
-    '<table class="l"><tr><th>Concepto</th>' + (ver ? '<th class="n">Sesiones</th><th class="n">Precio/sesión</th>' : '') + '<th class="n">Importe</th></tr>' + rows + '</table>' +
+    '<table class="l"><tr><th>Concepto</th>' + (ver ? '<th class="c">Sesiones</th><th class="c">Precio/sesión</th>' : '') + '<th class="n">Importe</th></tr>' + rows + '</table>' +
     '<table class="t"><tr><td>Base imponible</td><td class="n">' + eur_(t.base) + '</td></tr>' +
     '<tr><td>IVA ' + num_(d.iva) + '%</td><td class="n">' + eur_(t.iva) + '</td></tr>' +
     (num_(d.irpf) ? '<tr><td>Retención IRPF ' + num_(d.irpf) + '%</td><td class="n">− ' + eur_(t.irpf) + '</td></tr>' : '') +
