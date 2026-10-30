@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v54';
+const VERSION = 'v55';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1987,13 +1987,27 @@ async function copiarWidget() {
 /* =================== FACTURAS =================== */
 let FA = null;
 function cfgF(k, d) { const v = S.fin && S.fin.config && S.fin.config[k]; return v == null || v === '' ? d : v; }
+// nº de sesiones de una línea de cobro: bono (menos las previas) → «12 sesiones × 25 €» → contrato del cliente
+function cantDeLinea(l, i) {
+  if (num(l.bono) > 0) { const n = num(l.bono) - num(l.previas); return String(n > 0 ? n : num(l.bono)); }
+  const m = /(\d+)\s*sesi/i.exec(l.detalle || ''); if (m) return m[1];
+  const k = contratoOf(i.cliente_id); if (k && Math.abs(num(l.importe) - k.total) < 0.005) return String(k.n);
+  return '';
+}
+// para el PDF con columnas: quita del concepto el «12 sesiones × 25 €» (ya sale en sus columnas)
+function conceptoSinSesiones(t) {
+  let r = String(t || '').replace(/^\s*\d+\s+sesi\w*\s*[×x]\s*[\d.,]+\s*€\s*(·\s*)?/i, '').trim();
+  if (!r || MESES.includes(r.toLowerCase())) r = 'Servicios de entrenamiento' + (r ? ' · ' + r : '');
+  return r;
+}
 function sheetFactura(ingId) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
   const c = clienteOf(i.cliente_id), emp = c.tipo_fiscal === 'empresa';
   const L = lineasOf(i);
   FA = { ingId, cid: c.id, cid0: c.id, fecha: todayStr(), nombre: metaOf(c.id).nfiscal || c.nombre || '', nif: c.nif || '', direccion: c.direccion || '', email: c.email || '', pago: ['transferencia', 'bizum', 'efectivo'].includes(metodoHabitual(c.id)) ? metodoHabitual(c.id) : 'transferencia', iban: cfgF('emisor_iban', ''), incluido: !emp,
     iva: String(c.iva !== undefined && c.iva !== '' ? num(c.iva) : num(cfgF('iva_defecto', 21))), irpf: String(emp ? num(c.irpf !== undefined && c.irpf !== '' ? c.irpf : cfgF('irpf_empresas', 15)) : 0),
-    lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) })) };
+    verSes: metaOf(c.id).sespdf === 'si',
+    lineas: L.map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe), cant: cantDeLinea(l, i) })) };
   renderFactura();
 }
 /* ---- factura nueva a un cliente ya dado de alta (sin cobro previo): crea el cobro pendiente y abre la factura ---- */
@@ -2029,9 +2043,9 @@ function sheetEditarFactura(id) {
   const f = fdOf(i), c = clienteOf(i.cliente_id), cl = f.cliente || {}, p = f.pago || null;
   const dest = (S.fin.clientes.find(x => cl.nif && x.nif && String(x.nif).trim().toLowerCase() === String(cl.nif).trim().toLowerCase()) || S.fin.clientes.find(x => cl.nombre && (metaOf(x.id).nfiscal || x.nombre) === cl.nombre) || c);
   const hab = metodoHabitual(c.id), ids = ING().filter(x => x.num_factura && x.num_factura === i.num_factura).map(x => x.id).filter(x => x !== id);
-  const L = Array.isArray(f.lineas) && f.lineas.length ? f.lineas.map(l => ({ concepto: l.concepto || '', importe: String(num(l.base)) }))
-    : lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe) }));
-  FA = { edit: true, numero: f.numero || i.num_factura, enviada: f.enviada || '', ingId: id, ingIds: [id].concat(ids), cid: dest.id, cid0: c.id, fecha: f.fecha || i.fecha || todayStr(),
+  const L = Array.isArray(f.lineas) && f.lineas.length ? f.lineas.map(l => ({ concepto: l.concepto || '', importe: String(num(l.base)), cant: l.cant ? String(l.cant) : '' }))
+    : lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo, i.concepto].filter(Boolean).join(' · ') || 'Servicios de entrenamiento', importe: String(l.importe), cant: cantDeLinea(l, i) }));
+  FA = { edit: true, verSes: !!f.ver_sesiones, numero: f.numero || i.num_factura, enviada: f.enviada || '', ingId: id, ingIds: [id].concat(ids), cid: dest.id, cid0: c.id, fecha: f.fecha || i.fecha || todayStr(),
     nombre: cl.nombre || metaOf(c.id).nfiscal || c.nombre || '', nif: cl.nif != null ? cl.nif : (c.nif || ''), direccion: cl.direccion != null ? cl.direccion : (c.direccion || ''), email: cl.email != null ? cl.email : (c.email || ''),
     pago: p ? p.metodo : (['transferencia', 'bizum', 'efectivo'].includes(hab) ? hab : 'transferencia'), iban: p ? (p.iban || '') : cfgF('emisor_iban', ''),
     incluido: false, iva: String(num(f.iva_pct !== undefined ? f.iva_pct : (f.totales ? f.iva : cfgF('iva_defecto', 21)))), irpf: String(num(f.irpf_pct !== undefined ? f.irpf_pct : (f.totales ? f.irpf : 0))), lineas: L };
@@ -2075,7 +2089,7 @@ function sheetFacturaMulti(cid, ids) {
   sheetFactura(I[0].id);
   FA.ingIds = I.map(i => i.id); FA.fromMes = true;
   const mesDe = f => { const x = parseD(f); return x.getDate() + ' ' + MES_C[x.getMonth()] + ' ' + x.getFullYear(); };
-  FA.lineas = [].concat(...I.map(i => lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo || i.concepto || 'Servicios de entrenamiento', mesDe(i.fecha)].filter(Boolean).join(' · '), importe: String(l.importe) }))));
+  FA.lineas = [].concat(...I.map(i => lineasOf(i).map(l => ({ concepto: [l.detalle || l.tipo || i.concepto || 'Servicios de entrenamiento', mesDe(i.fecha)].filter(Boolean).join(' · '), importe: String(l.importe), cant: cantDeLinea(l, i) }))));
   renderFactura();
 }
 // qué le falta al destinatario para una factura correcta
@@ -2099,7 +2113,7 @@ function faPickCliente(id) {
 }
 function faCalc() {
   const iva = num(FA.iva), irpf = num(FA.irpf), k = FA.incluido ? 1 + iva / 100 - irpf / 100 : 1;
-  const lineas = FA.lineas.map(l => ({ concepto: l.concepto, base: Math.round(num(l.importe) / k * 100) / 100 }));
+  const lineas = FA.lineas.map(l => ({ concepto: l.concepto, base: Math.round(num(l.importe) / k * 100) / 100, cant: Math.round(num(l.cant)) || 0 }));
   const base = Math.round(lineas.reduce((s, l) => s + l.base, 0) * 100) / 100, vr = Math.round(base * irpf) / 100;
   let vi = Math.round(base * iva) / 100;
   if (FA.incluido) { const T = Math.round(FA.lineas.reduce((s, l) => s + num(l.importe), 0) * 100) / 100; vi = Math.round((T - base + vr) * 100) / 100; }  // cuadra al céntimo con lo cobrado
@@ -2126,7 +2140,8 @@ function renderFactura() {
     </div>
     <span class="muted" style="font-size:12px">Emite: ${esc([cfgF('emisor_nombre', ''), cfgF('emisor_nif', '') && 'NIF ' + cfgF('emisor_nif', ''), cfgF('emisor_direccion', '')].filter(Boolean).join(' · ') || 'faltan tus datos')} · se cambia en Ajustes</span>
     <label class="f">Fecha de la factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label>
-    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FA.lineas.map((l, k) => `<div class="row" style="gap:8px"><input class="in" aria-label="Concepto" value="${esc(l.concepto)}" oninput="FA.lineas[${k}].concepto=this.value" style="background:var(--bg)"><input class="in" aria-label="Importe" inputmode="decimal" value="${esc(l.importe)}" oninput="FA.lineas[${k}].importe=this.value;updFa()" style="width:100px;flex:none;background:var(--bg);text-align:right;font-weight:700"></div>`).join('')}</div>
+    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FA.lineas.map((l, k) => `<div class="col" style="gap:4px"><div class="row" style="gap:8px"><input class="in" aria-label="Concepto" value="${esc(l.concepto)}" oninput="FA.lineas[${k}].concepto=this.value" style="background:var(--bg)"><input class="in" aria-label="Importe" inputmode="decimal" value="${esc(l.importe)}" oninput="FA.lineas[${k}].importe=this.value;updFa()" style="width:100px;flex:none;background:var(--bg);text-align:right;font-weight:700"></div>${FA.verSes ? `<div class="row" style="gap:8px"><input class="in" aria-label="Número de sesiones" inputmode="numeric" value="${esc(l.cant || '')}" placeholder="Nº sesiones" oninput="FA.lineas[${k}].cant=this.value;updFa()" style="width:110px;flex:none;background:var(--bg)"><span class="muted" id="faU${k}" style="font-size:12px">${faUnitTxt(l)}</span></div>` : ''}</div>`).join('')}</div>
+    <label class="row" style="gap:10px;font-size:14px;align-items:flex-start"><input type="checkbox" ${FA.verSes ? 'checked' : ''} style="width:22px;height:22px;flex:none;accent-color:var(--dark)" onchange="FA.verSes=this.checked;renderFactura()"><span>Mostrar en el PDF el <b>nº de sesiones</b> y el <b>precio por sesión</b><br><span class="muted" style="font-size:12px">Añade las columnas «Sesiones» y «Precio/sesión» a la factura. Se recuerda para este cliente.</span></span></label>
     <div class="opt"><button type="button" class="${FA.incluido ? 'on' : ''}" onclick="FA.incluido=true;renderFactura()">Importe con IVA incluido</button><button type="button" class="${!FA.incluido ? 'on' : ''}" onclick="FA.incluido=false;renderFactura()">Importe = base</button></div>
     <div class="grid2">
       <div class="col" style="gap:6px"><span class="eyebrow">IVA</span><div class="opt">${[21, 10, 0].map(v => `<button type="button" class="${num(FA.iva) === v ? 'on' : ''}" onclick="FA.iva='${v}';renderFactura()">${v ? v + '%' : 'Exento'}</button>`).join('')}</div></div>
@@ -2142,10 +2157,16 @@ function renderFactura() {
   </form>`);
 }
 function faTotHTML(t) { return `<div class="r"><span>Base imponible</span><span>${eurRaw(t.base, true)}</span></div><div class="r"><span>+ IVA ${num(FA.iva)}%</span><span>${eurRaw(t.iva, true)}</span></div>${num(FA.irpf) ? `<div class="r"><span>− IRPF ${num(FA.irpf)}%</span><span>− ${eurRaw(t.irpf, true)}</span></div>` : ''}<div style="border-top:1px solid #3A3C42;margin:4px 0"></div><div class="row between"><b>Total factura</b><span class="big" style="font-size:28px">${eurRaw(t.total, true)}</span></div>`; }
-function updFa() { const e = $('#faTot'); if (e) e.innerHTML = faTotHTML(faCalc()); }
+// precio por sesión de una línea (sobre la base imponible, que es lo que sale en el PDF)
+function faUnitTxt(l) {
+  const q = Math.round(num(l.cant)); if (!(q > 0)) return 'Pon las sesiones para ver el precio por sesión';
+  const b = faCalc().lineas[FA.lineas.indexOf(l)].base, u = Math.round(b / q * 100) / 100;
+  return q + (q === 1 ? ' sesión' : ' sesiones') + ' · ' + (Math.abs(u * q - b) < 0.005 ? eurRaw(u, true) : (Math.round(b / q * 10000) / 10000).toLocaleString('es-ES', { maximumFractionDigits: 4 }) + ' €') + ' por sesión (sin IVA)';
+}
+function updFa() { const e = $('#faTot'); if (e) e.innerHTML = faTotHTML(faCalc()); FA.lineas.forEach((l, k) => { const u = $('#faU' + k); if (u) u.textContent = faUnitTxt(l); }); }
 function faPayload() {
   const c = clienteOf(FA.cid), t = faCalc();
-  return { ingId: FA.ingId, numero: FA.edit ? FA.numero : undefined, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas, pago: { metodo: FA.pago, iban: FA.pago === 'transferencia' ? (FA.iban || '').replace(/\s+/g, ' ').trim() : '' }, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
+  return { ingId: FA.ingId, numero: FA.edit ? FA.numero : undefined, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas.map(l => Object.assign({}, l, FA.verSes ? { concepto: conceptoSinSesiones(l.concepto) } : {})), ver_sesiones: !!FA.verSes, pago: { metodo: FA.pago, iban: FA.pago === 'transferencia' ? (FA.iban || '').replace(/\s+/g, ' ').trim() : '' }, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
 }
 async function previewFactura() {
   try {
@@ -2169,7 +2190,8 @@ async function generarFactura(ev) {
       const sv = await api('saveCliente', { data: nc }); const k = S.fin.clientes.findIndex(x => x.id === sv.id); if (k >= 0) S.fin.clientes[k] = sv;
     }
     const nf = d.cliente.nombre === (c.nombre || '') ? '' : d.cliente.nombre, om = metaOf(c.id);
-    if ((om.nfiscal || '') !== nf) await saveMeta(c.id, Object.assign({}, om, { nfiscal: nf }));
+    const sp = FA.verSes ? 'si' : 'no';
+    if ((om.nfiscal || '') !== nf || (om.sespdf || 'no') !== sp) await saveMeta(c.id, Object.assign({}, om, { nfiscal: nf, sespdf: sp }));
     let r;
     if (isDemo() && FA.edit) r = { numero: FA.numero, url: '', datos: JSON.stringify(Object.assign({ base: faCalc().base, total: faCalc().total }, d, { numero: FA.numero })) };
     else if (isDemo()) { const n = +cfgF('siguiente_numero', 1) || 1; r = { numero: (cfgF('serie_factura', d.fecha.slice(0, 4) + '-')) + String(n).padStart(3, '0'), url: '', datos: JSON.stringify(Object.assign({ numero: '', base: faCalc().base, total: faCalc().total }, d)) }; S.fin.config.siguiente_numero = String(n + 1); }

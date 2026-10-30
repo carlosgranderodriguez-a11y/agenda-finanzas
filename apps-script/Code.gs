@@ -431,10 +431,20 @@ function pagoTexto_(pg, c) {
   if (pg.metodo === 'efectivo') return 'Forma de pago: efectivo';
   return '';
 }
+// precio por sesión: 2 decimales si cuadra con el importe; si no, hasta 4 para no mostrar cifras que no suman
+function unit_(b, q) {
+  var u = Math.round(b / q * 100) / 100; if (Math.abs(u * q - b) < 0.005) return eur_(u);
+  return (Math.round(b / q * 10000) / 10000).toFixed(4).replace('.', ',').replace(/0+$/, '') + ' €';
+}
 function facturaHTML_(d) {
   var c = getConfig_(), t = calcFactura_(d), cl = d.cliente || {};
   var f = String(d.fecha || '').split('-'); var fecha = f.length === 3 ? f[2] + '/' + f[1] + '/' + f[0] : d.fecha;
-  var rows = (d.lineas || []).map(function (l) { return '<tr><td>' + esc_(l.concepto) + '</td><td class="n">' + eur_(num_(l.base)) + '</td></tr>'; }).join('');
+  // con d.ver_sesiones y algún nº de sesiones: columnas «Sesiones» y «Precio/sesión» (precio sobre la base imponible)
+  var ver = !!d.ver_sesiones && (d.lineas || []).some(function (l) { return num_(l.cant) > 0; });
+  var rows = (d.lineas || []).map(function (l) {
+    var q = Math.round(num_(l.cant)), b = num_(l.base);
+    return '<tr><td>' + esc_(l.concepto) + '</td>' + (ver ? '<td class="n">' + (q > 0 ? q : '') + '</td><td class="n">' + (q > 0 ? unit_(b, q) : '') + '</td>' : '') + '<td class="n">' + eur_(b) + '</td></tr>';
+  }).join('');
   return '<html><head><meta charset="utf-8"><style>' +
     'body{font-family:Helvetica,Arial,sans-serif;color:#17181C;font-size:11pt;margin:36px}' +
     'h1{font-size:26pt;margin:0 0 4px;letter-spacing:-.5px}.m{color:#5C5F66}.row{width:100%}' +
@@ -446,7 +456,7 @@ function facturaHTML_(d) {
     '<table class="row"><tr><td style="vertical-align:top"><h1>Factura</h1><div><b>Nº ' + esc_(d.numero || '') + '</b></div><div class="m">Fecha: ' + esc_(fecha) + '</div></td>' +
     '<td style="text-align:right;vertical-align:top;line-height:1.5"><b>' + esc_(c.emisor_nombre) + '</b><br>' + (c.emisor_nif ? 'NIF ' + esc_(c.emisor_nif) + '<br>' : '') + esc_(c.emisor_direccion).replace(/\n/g, '<br>') + (c.emisor_email ? '<br>' + esc_(c.emisor_email) : '') + '</td></tr></table>' +
     '<div class="box"><span class="m" style="font-size:8.5pt;text-transform:uppercase">Facturar a</span><br><b style="font-size:12pt">' + esc_(cl.nombre) + '</b>' + (cl.nif ? '<br>CIF/NIF: ' + esc_(cl.nif) : '') + (cl.direccion ? '<br>' + esc_(cl.direccion).replace(/\n/g, '<br>') : '') + '</div>' +
-    '<table class="l"><tr><th>Concepto</th><th class="n">Importe</th></tr>' + rows + '</table>' +
+    '<table class="l"><tr><th>Concepto</th>' + (ver ? '<th class="n">Sesiones</th><th class="n">Precio/sesión</th>' : '') + '<th class="n">Importe</th></tr>' + rows + '</table>' +
     '<table class="t"><tr><td>Base imponible</td><td class="n">' + eur_(t.base) + '</td></tr>' +
     '<tr><td>IVA ' + num_(d.iva) + '%</td><td class="n">' + eur_(t.iva) + '</td></tr>' +
     (num_(d.irpf) ? '<tr><td>Retención IRPF ' + num_(d.irpf) + '%</td><td class="n">− ' + eur_(t.irpf) + '</td></tr>' : '') +
@@ -472,7 +482,7 @@ function crearFactura_(d) {
     var q = trim_(d.fecha);
     var file = folder_([q.anio, q.t, 'Facturas emitidas']).createFile(blob);
     var t = calcFactura_(d);
-    var datos = JSON.stringify({ numero: d.numero, fecha: d.fecha, base: t.base, iva_pct: num_(d.iva), iva: t.iva, irpf_pct: num_(d.irpf), irpf: t.irpf, total: t.total, cliente: d.cliente, lineas: d.lineas, pago: d.pago || null, fileId: file.getId() });
+    var datos = JSON.stringify({ numero: d.numero, fecha: d.fecha, base: t.base, iva_pct: num_(d.iva), iva: t.iva, irpf_pct: num_(d.irpf), irpf: t.irpf, total: t.total, cliente: d.cliente, lineas: d.lineas, ver_sesiones: !!d.ver_sesiones, pago: d.pago || null, fileId: file.getId() });
     if (d.ingId) {
       var rows = readRows_('Ingresos');
       for (var i = 0; i < rows.length; i++) if (rows[i].id === d.ingId) {

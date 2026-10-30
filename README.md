@@ -35,6 +35,9 @@ Ajustes → Clientes → abre el cliente que quieres conservar → **Unir con un
 ## Precio por sesión y sesiones al mes
 En la ficha del cliente: **precio por sesión** y **sesiones al mes** (para clubes y grupos, donde el precio cambia con el nº de deportistas). El importe del mes se calcula solo (precio × sesiones), se propone al «Apuntar el mes» y sale en la factura como «12 sesiones × 25 €». En «Sesiones del mes» se ve cuántas sesiones llevas frente a las del contrato.
 
+## Sesiones y precio por sesión en el PDF
+Al generar o editar una factura hay una casilla **«Mostrar en el PDF el nº de sesiones y el precio por sesión»** (desactivada por defecto). Si la marcas, el PDF añade las columnas *Sesiones* y *Precio/sesión*; el nº de sesiones se propone solo (contrato, bono o concepto) y puedes cambiarlo por línea. El precio por sesión se calcula sobre la base sin IVA. La opción se recuerda para ese cliente. Requiere actualizar `Code.gs` en Apps Script.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
