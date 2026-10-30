@@ -29,6 +29,9 @@ Al generar una factura eliges Transferencia, Bizum o Efectivo. Con transferencia
 ## Editar facturas hechas
 Facturas → botón **Editar** en cada factura (también desde «Factura creada» y «Enviar»). Puedes **cambiar el cliente**: al elegirlo se rellenan nombre fiscal, NIF, dirección, email e IVA/IRPF de su ficha, y opcionalmente se pasa el cobro a ese cliente. Además puedes cambiar: cambia conceptos, importes, fecha, datos del cliente, IVA/IRPF o forma de pago. Conserva el número y genera un PDF nuevo; el anterior pasa a la papelera de Drive (requiere el backend actualizado; si no, se crea el PDF nuevo y el viejo se queda en Drive).
 
+## Unir clientes duplicados
+Ajustes → Clientes → abre el cliente que quieres conservar → **Unir con un cliente duplicado…** → elige el duplicado. Sus cobros (con sus facturas) pasan al cliente que te quedas, se rellenan sus datos vacíos (CIF, dirección, email) con los del duplicado y el duplicado se borra.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 

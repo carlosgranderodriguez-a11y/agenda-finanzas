@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v52';
+const VERSION = 'v53';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1764,6 +1764,7 @@ function renderClienteSheet() {
     <label class="f">Notas<textarea class="in" oninput="CC.notas=this.value" placeholder="Ej. paga a 30 días, factura trimestral…">${esc(CC.notas)}</textarea></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${CLIENT_COLORS.map(c => `<button type="button" aria-label="Color ${c}" onclick="CC.color='${c}';renderClienteSheet()" style="width:36px;height:36px;border-radius:12px;border:${CC.color === c ? '3px solid var(--ink)' : '0'};background:${c}"></button>`).join('')}</div></div>
     <button class="btn dark" type="submit">Guardar</button>
+    ${CC.id ? `<button class="btn" type="button" style="background:var(--bg)" onclick="sheetUnirCliente('${CC.id}')">Unir con un cliente duplicado…</button>` : ''}
     ${CC.id ? `<button class="btn danger" type="button" onclick="borrarCliente('${CC.id}')">Borrar cliente</button>` : ''}
   </form>`);
 }
@@ -1782,6 +1783,45 @@ async function guardarCliente(ev) {
     const i = S.fin.clientes.findIndex(x => x.id === c.id); if (i >= 0) S.fin.clientes[i] = c; else S.fin.clientes.push(c);
     LS.set('af_fin_cache', S.fin); toast('Cliente guardado');
     if (CC_back && FF) { FF.cliente_id = c.id; FF._touched = false; pickCliente(c.id); } else if (CC_back === 'ficha') { render(); sheetFicha(c.id); } else { closeSheet(); render(); }
+  } catch (e) { toast(e.message); }
+}
+/* =================== UNIR CLIENTES DUPLICADOS =================== */
+// te quedas con uno (keep): los cobros del duplicado pasan a él, se completan sus datos vacíos y el duplicado se borra
+function sheetUnirCliente(keep) {
+  const k = clienteOf(keep);
+  const L = S.fin.clientes.filter(c => c.id !== keep).sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+  openSheet(`<div class="stack">
+    <h1 style="font-size:24px">Unir clientes</h1>
+    <div class="card" style="background:var(--bg)"><span class="eyebrow">Te quedas con</span><br><b style="font-size:16px">${esc(k.nombre)}</b><br><span class="muted" style="font-size:13px">${k.nif ? 'CIF/NIF ' + esc(k.nif) : 'Sin CIF'}</span></div>
+    <span class="muted" style="font-size:13px">Elige el cliente <b>duplicado</b>, el que se va a borrar. Sus cobros pasarán a «${esc(k.nombre)}».</span>
+    <div class="card" style="padding:4px 14px;background:var(--bg)">${L.map(c => { const n = ING().filter(i => i.cliente_id === c.id).length;
+      return `<button class="li" onclick="confirmarUnir('${keep}','${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${c.nif ? 'CIF/NIF ' + esc(c.nif) + ' · ' : ''}${n} cobro${n === 1 ? '' : 's'}</span></span><span class="muted" style="font-size:18px">›</span></button>`; }).join('')}</div>
+  </div>`);
+}
+async function confirmarUnir(keep, src) {
+  const K = clienteOf(keep), X = clienteOf(src), n = ING().filter(i => i.cliente_id === src).length;
+  const ok = await ask('Vas a unir «' + (X.nombre || '').trim() + '» en «' + (K.nombre || '').trim() + '»: ' + (n ? n + ' cobro' + (n === 1 ? '' : 's') + ' pasa' + (n === 1 ? '' : 'n') + ' a «' + (K.nombre || '').trim() + '», ' : '') + 'se completan sus datos vacíos (CIF, dirección, email) con los del otro y «' + (X.nombre || '').trim() + '» se borra. No se puede deshacer. ¿Continuar?', 'Unir y borrar');
+  if (ok) await unirClientes(keep, src);
+}
+async function unirClientes(keep, src) {
+  if (keep === src) return;
+  const K = clienteOf(keep), X = clienteOf(src);
+  try {
+    const merged = Object.assign({}, K); Object.keys(merged).forEach(k => { if (k[0] === '_') delete merged[k]; });
+    ['nif', 'email', 'direccion', 'notas', 'tarifa', 'tipo_fiscal', 'iva', 'irpf', 'factura'].forEach(f => { if (!String(merged[f] == null ? '' : merged[f]).trim() && String(X[f] == null ? '' : X[f]).trim()) merged[f] = X[f]; });
+    const mk = metaOf(keep), mx = metaOf(src), meta = Object.assign({}, mx);
+    Object.keys(mk).forEach(f => { if (mk[f] !== '' && mk[f] != null) meta[f] = mk[f]; });
+    // 1) los cobros pasan al cliente que se queda  2) se completa su ficha  3) se borra el duplicado (si algo falla antes, no se borra nada)
+    const moved = ING().filter(i => i.cliente_id === src);
+    for (const i of moved) { i.cliente_id = keep; await api('saveIngreso', { data: i }); }
+    await api('saveCliente', { data: merged });
+    const ix = S.fin.clientes.findIndex(c => c.id === keep); if (ix >= 0) S.fin.clientes[ix] = Object.assign({}, S.fin.clientes[ix], merged);
+    const all = cmeta(); all[keep] = meta; delete all[src]; const v = JSON.stringify(all);
+    await api('saveConfig', { data: { clientes_meta: v } }); S.fin.config = Object.assign(S.fin.config || {}, { clientes_meta: v });
+    await api('deleteCliente', { data: { id: src } });
+    S.fin.clientes = S.fin.clientes.filter(c => c.id !== src);
+    LS.set('af_fin_cache', S.fin); closeSheet(); render();
+    toast('Unidos: ' + moved.length + ' cobro' + (moved.length === 1 ? '' : 's') + ' pasan a ' + (K.nombre || '').trim());
   } catch (e) { toast(e.message); }
 }
 async function borrarCliente(id) {
