@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v53';
+const VERSION = 'v54';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1354,6 +1354,12 @@ async function borrarIngreso(id) {
 
 /* =================== CONCEPTO (p. ej. Planificaciones) =================== */
 // última cantidad que un cliente pagó por un concepto (para rellenar)
+// precio por sesión × sesiones al mes (se guarda en la ficha del cliente)
+function contratoOf(cid) { const m = metaOf(cid), p = num(m.psesion), n = Math.round(num(m.sesmes)); return p > 0 && n > 0 ? { p, n, total: Math.round(p * n * 100) / 100 } : null; }
+const contratoTxt = k => k.n + (k.n === 1 ? ' sesión' : ' sesiones') + ' × ' + eurRaw(k.p);
+function detalleContrato(cid, imp) { const k = contratoOf(cid); return k && Math.abs(num(imp) - k.total) < 0.005 ? contratoTxt(k) : ''; }
+// importe que se propone al apuntar el mes: el del contrato si lo tiene; si no, el último o el habitual
+function importeMes(cid, tipo) { const k = contratoOf(cid); return k ? k.total : (lastPart(cid, tipo) || num(clienteOf(cid).tarifa)); }
 function lastPart(cid, tipo, beforeYm) {
   const arr = ING().filter(i => i.cliente_id === cid && (!beforeYm || (i.fecha || '').slice(0, 7) < beforeYm) && lineasOf(i).some(l => l.tipo === tipo)).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
   return arr.length ? partOf(arr[0], tipo) : 0;
@@ -1387,7 +1393,7 @@ function viewConcepto() {
     <div class="grid2"><button class="btn primary" onclick="sheetAtleta()">+ Añadir atleta</button><button class="btn dark" onclick="sheetLote()">Apuntar el mes${faltan.length ? ' · faltan ' + faltan.length : ''}</button></div>
     <div class="card" style="padding:4px 14px">
       ${rows.length ? rows.map(r => `<button class="li" onclick="${r.ids.length === 1 ? `sheetVerIngreso('${r.ids[0]}')` : `S.tipoF='${esc(t).replace(/'/g, '')}';S.q='${esc(r.c.nombre).replace(/'/g, '')}';S.filter='todos';go('ingresos')`}"><span class="av" style="background:${r.c.color || '#6B6E75'}22;color:${r.c.color || '#6B6E75'}">${esc(initials(r.c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(r.c.nombre)}</b><span class="muted" style="font-size:12px">${[r.ids.length > 1 ? r.ids.length + ' apuntes' : '', sesionesDe(r.id, ym) ? ses(sesionesDe(r.id, ym)) + ' en agenda' : ''].filter(Boolean).join(' · ')}</span></span><span class="col" style="align-items:flex-end;gap:3px"><b>${eur(r.v)}</b><span class="badge ${r.pend ? 'b-warn' : 'b-ok'}">${r.pend ? 'Debe' : 'Cobrado'}</span></span></button>`).join('') : `<div class="empty">Nada apuntado en ${esc(t)} este mes.</div>`}
-      ${faltan.map(id => { const c = clienteOf(id), v = lastPart(id, t) || num(c.tarifa), ns = sesionesDe(id, ym); return `<div class="li" style="opacity:.75"><span class="av" style="background:var(--soft);color:var(--muted)">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Sin apuntar este mes${ns ? ' · <b>' + ses(ns) + '</b> en agenda' : ''}${v ? ' · ' + eur(v) : ''}</span></span><button class="chip" style="background:var(--dark);color:#fff" onclick="apuntarUno('${id}')">+ ${eur(v)}</button></div>`; }).join('')}
+      ${faltan.map(id => { const c = clienteOf(id), v = importeMes(id, t), ns = sesionesDe(id, ym); return `<div class="li" style="opacity:.75"><span class="av" style="background:var(--soft);color:var(--muted)">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Sin apuntar este mes${ns ? ' · <b>' + ses(ns) + '</b> en agenda' : ''}${v ? ' · ' + eur(v) : ''}</span></span><button class="chip" style="background:var(--dark);color:#fff" onclick="apuntarUno('${id}')">+ ${eur(v)}</button></div>`; }).join('')}
     </div>
     ${total ? `<div class="catbar">${rows.map(r => `<span style="flex:${r.v};background:${r.c.color || '#6B6E75'}"></span>`).join('')}</div>` : ''}
   </div>`;
@@ -1395,13 +1401,13 @@ function viewConcepto() {
 // lo apuntado «por adelantado» (sin cobrar) vence a fin de mes: hasta entonces es «previsto», no deuda
 function finDeMes() { const [y, m] = S.month.split('-').map(Number); return S.month + '-' + String(new Date(y, m, 0).getDate()).padStart(2, '0'); }
 function fechaDelMes() { return S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01'; }
-function nuevoIngresoDe(cid, tipo, imp) {
-  return { id: uid(), fecha: finDeMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: '' }]) };
+function nuevoIngresoDe(cid, tipo, imp, det) {
+  return { id: uid(), fecha: finDeMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: det || '' }]) };
 }
 async function apuntarUno(cid) {
-  const t = S.tipoSel || tiposList()[0]; const v = lastPart(cid, t) || num(clienteOf(cid).tarifa);
+  const t = S.tipoSel || tiposList()[0]; const v = importeMes(cid, t);
   if (!v) { toast('Sin importe previo: usa el +'); return; }
-  try { await saveIng(nuevoIngresoDe(cid, t, v), 'Apuntado'); render(); } catch (e) { toast(e.message); }
+  try { await saveIng(nuevoIngresoDe(cid, t, v, detalleContrato(cid, v)), 'Apuntado'); render(); } catch (e) { toast(e.message); }
 }
 let QA = null;
 function sheetAtleta() {
@@ -1445,7 +1451,7 @@ function sheetLote() {
   const t = S.tipoSel || tiposList()[0];
   const ya = new Set(ING().filter(i => (i.fecha || '').slice(0, 7) === S.month && lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id));
   const hist = new Set([...ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id), ...S.fin.clientes.filter(c => metaOf(c.id).tipo === t).map(c => c.id)]);
-  LOTE = S.fin.clientes.filter(c => !ya.has(c.id)).map(c => ({ id: c.id, nombre: c.nombre, on: hist.has(c.id), imp: String(lastPart(c.id, t) || num(c.tarifa) || '') }))
+  LOTE = S.fin.clientes.filter(c => !ya.has(c.id)).map(c => ({ id: c.id, nombre: c.nombre, on: hist.has(c.id), imp: String(importeMes(c.id, t) || '') }))
     .sort((a, b) => (b.on - a.on) || a.nombre.localeCompare(b.nombre));
   renderLote();
 }
@@ -1489,7 +1495,7 @@ async function guardarLote() {
   let n = 0;
   for (const x of sel) {  // de uno en uno: Apps Script duplica si se le mandan muchas a la vez
     btn.innerHTML = '<span class="spin"></span> ' + (++n) + '/' + sel.length;
-    try { await saveIng(nuevoIngresoDe(x.id, t, x.imp)); } catch (e) { toast(x.nombre + ': ' + e.message); btn.disabled = false; return; }
+    try { await saveIng(nuevoIngresoDe(x.id, t, x.imp, detalleContrato(x.id, x.imp))); } catch (e) { toast(x.nombre + ': ' + e.message); btn.disabled = false; return; }
   }
   closeSheet(); toast(sel.length + ' apuntados en ' + t); render();
 }
@@ -1545,7 +1551,7 @@ function pickCliente(id, silent) {
     // copia el desglose del último ingreso de ese cliente; si no hay, su importe habitual
     const last = ING().filter(i => i.cliente_id === id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
     const defT = metaOf(id).tipo || tiposList()[0];
-    FF._lin = last ? lineasOf(last).map(l => Object.assign({}, l, { tipo: l.tipo || defT, importe: l.importe ? String(l.importe) : '' })) : [{ tipo: defT, importe: c.tarifa || '', detalle: '' }];
+    FF._lin = last ? lineasOf(last).map(l => Object.assign({}, l, { tipo: l.tipo || defT, importe: l.importe ? String(l.importe) : '' })) : [{ tipo: defT, importe: contratoOf(id) ? String(contratoOf(id).total) : (c.tarifa || ''), detalle: contratoOf(id) ? contratoTxt(contratoOf(id)) : '' }];
   }
   if (!silent) renderIngresoSheet();
 }
@@ -1716,7 +1722,7 @@ function viewClientes() {
     <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Clientes</h1></div>
     <div class="grid2"><button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button><button class="btn primary" onclick="go('bonos')">Bonos</button></div>
     <span class="muted" style="font-size:12px">Toca un cliente para ver su ficha, sus bonos y las sesiones que le quedan.</span>
-    <div class="card" style="padding:4px 14px">${list.length ? list.map(c => `<button class="li" onclick="sheetFicha('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${bonoTag(c.id) || (c.tarifa ? 'Habitual ' + eur(num(c.tarifa)) : 'Sin importe habitual')}${pend(c.id) ? ' · <span style="color:var(--warn);font-weight:700">debe ' + eur0(pend(c.id)) + '</span>' : ''}</span></span><span class="col" style="align-items:flex-end"><b>${eur0(tot(c.id))}</b><span class="muted" style="font-size:11px">en ${yr}</span></span></button>`).join('') : `<div class="empty">Aún no tienes clientes.</div>`}</div>
+    <div class="card" style="padding:4px 14px">${list.length ? list.map(c => `<button class="li" onclick="sheetFicha('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${bonoTag(c.id) || (contratoOf(c.id) ? contratoTxt(contratoOf(c.id)) + ' = ' + eur(contratoOf(c.id).total) : c.tarifa ? 'Habitual ' + eur(num(c.tarifa)) : 'Sin importe habitual')}${pend(c.id) ? ' · <span style="color:var(--warn);font-weight:700">debe ' + eur0(pend(c.id)) + '</span>' : ''}</span></span><span class="col" style="align-items:flex-end"><b>${eur0(tot(c.id))}</b><span class="muted" style="font-size:11px">en ${yr}</span></span></button>`).join('') : `<div class="empty">Aún no tienes clientes.</div>`}</div>
   </div>`;
 }
 let CC = null, CC_back = false;
@@ -1724,8 +1730,17 @@ function sheetCliente(id, back) {
   CC_back = !!back;
   const src = id ? S.fin.clientes.find(x => x.id === id) : null;
   CC = src ? Object.assign({}, src) : { nombre: '', nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' };
-  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || '';
+  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || ''; CC._psesion = m.psesion || ''; CC._sesmes = m.sesmes || '';
   renderClienteSheet();
+}
+function ccContratoHTML() {
+  const p = num(CC._psesion), n = Math.round(num(CC._sesmes));
+  if (p > 0 && n > 0) return `Importe del mes: <b>${n} × ${eurRaw(p)} = ${eurRaw(Math.round(p * n * 100) / 100)}</b>`;
+  return '<span class="muted">Pon las dos cosas y se calcula el importe del mes.</span>';
+}
+function ccContrato() {
+  const p = num(CC._psesion), n = Math.round(num(CC._sesmes)), e = $('#ccCon'); if (e) e.innerHTML = ccContratoHTML();
+  if (p > 0 && n > 0) { CC.tarifa = String(Math.round(p * n * 100) / 100); const t = $('#ccTar'); if (t) t.value = CC.tarifa; }   // el importe habitual sigue al contrato
 }
 function renderClienteSheet() {
   S._fichaId = null;
@@ -1733,7 +1748,16 @@ function renderClienteSheet() {
     <h1 style="font-size:24px">${CC.id ? 'Editar cliente' : 'Nuevo cliente'}</h1>
     <label class="f">Nombre<input class="in" required value="${esc(CC.nombre)}" oninput="CC.nombre=this.value"></label>
     <label class="f">Cómo aparece en la agenda<input class="in" value="${esc(CC._alias)}" oninput="CC._alias=this.value" placeholder="${esc(CC.nombre || 'Ej. Rafa')} (si en tus eventos lo escribes distinto)"></label>
-    <label class="f">Importe habitual (€)<input class="in" inputmode="decimal" value="${esc(CC.tarifa)}" oninput="CC.tarifa=this.value" placeholder="Se rellena solo al apuntar un ingreso"></label>
+    <div class="stack" style="gap:8px;border:1.5px solid var(--line);border-radius:18px;padding:12px">
+      <span class="eyebrow">Precio de la sesión y sesiones al mes</span>
+      <div class="grid2">
+        <label class="f">Precio por sesión (€)<input class="in" inputmode="decimal" value="${esc(CC._psesion)}" oninput="CC._psesion=this.value;ccContrato()" placeholder="Ej. 25"></label>
+        <label class="f">Sesiones al mes<input class="in" inputmode="numeric" value="${esc(CC._sesmes)}" oninput="CC._sesmes=this.value;ccContrato()" placeholder="Ej. 12"></label>
+      </div>
+      <div id="ccCon" style="font-size:13px">${ccContratoHTML()}</div>
+      <span class="muted" style="font-size:12px">Para clubes y grupos: el precio cambia con el nº de deportistas, así que lo cambias aquí. Al «Apuntar el mes» y al hacer la factura sale ese importe, con el desglose «12 sesiones × 25 €».</span>
+    </div>
+    <label class="f">Importe habitual (€)<input class="in" id="ccTar" inputmode="decimal" value="${esc(CC.tarifa)}" oninput="CC.tarifa=this.value" placeholder="Se rellena solo al apuntar un ingreso"></label>
     <div class="grid3">
       <label class="f">Sesiones bono<input class="in" inputmode="numeric" value="${esc(CC._nbono)}" oninput="CC._nbono=this.value" placeholder="4"></label>
       <label class="f">Precio bono €<input class="in" inputmode="decimal" value="${esc(CC._pbono)}" oninput="CC._pbono=this.value"></label>
@@ -1772,7 +1796,8 @@ async function guardarCliente(ev) {
   ev.preventDefault();
   try {
     const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC);
-    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim() };
+    if (num(CC._psesion) > 0 && Math.round(num(CC._sesmes)) > 0) data.tarifa = String(Math.round(num(CC._psesion) * Math.round(num(CC._sesmes)) * 100) / 100);
+    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim(), psesion: String(num(CC._psesion) || ''), sesmes: String(Math.round(num(CC._sesmes)) || '') };
     Object.keys(data).forEach(k => { if (k[0] === '_') delete data[k]; });
     if (!data.id) data.id = uid();
     const prevArea = metaOf(data.id).area || '';
@@ -1987,7 +2012,7 @@ function sheetFacturaNueva() {
     <button class="btn dark" type="submit">Continuar a la factura</button>
   </form>`);
 }
-function fnPick(id) { const c = clienteOf(id); FN.cid = id; if (!FN.imp) FN.imp = String(num(metaOf(id).psuelta) || num(c.tarifa) || '') || ''; sheetFacturaNueva(); }
+function fnPick(id) { const c = clienteOf(id); FN.cid = id; const k = contratoOf(id); if (k) { FN.imp = String(k.total); FN.det = contratoTxt(k); } else if (!FN.imp) FN.imp = String(num(metaOf(id).psuelta) || num(c.tarifa) || '') || ''; sheetFacturaNueva(); }
 async function crearFacturaNueva(ev) {
   ev.preventDefault();
   if (!FN.cid) { toast('Elige un cliente'); return; }
@@ -2430,7 +2455,7 @@ function viewMes() {
     <span class="muted" style="font-size:12px">Toca un día para ver sus sesiones o un cliente para ver las suyas. Las sesiones salen de tu agenda (eventos con el nombre del cliente).</span>
     <div class="card" style="padding:4px 14px">${rows.length ? rows.map(r => { const c = r.c, t = r.L.length, o = r.L.filter(s => s.est.k === 'ok').length, dd = r.L.filter(s => s.est.k === 'debe').length, pp = r.L.filter(s => s.est.k === 'pend').length;
       return `<button class="li" onclick="sheetClienteMes('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>
-        <span class="col grow" style="gap:5px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b><span style="display:flex;flex-wrap:wrap;gap:4px">${r.L.map(s => `<span class="dp ${s.est.k}">${s.d.slice(8).replace(/^0/, '')}</span>`).join('')}</span></span>
+        <span class="col grow" style="gap:5px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b>${contratoOf(c.id) ? `<span class="muted" style="font-size:11px">${t} de ${contratoOf(c.id).n} sesiones del mes · ${eur(contratoOf(c.id).p)}/sesión</span>` : ''}<span style="display:flex;flex-wrap:wrap;gap:4px">${r.L.map(s => `<span class="dp ${s.est.k}">${s.d.slice(8).replace(/^0/, '')}</span>`).join('')}</span></span>
         <span class="col" style="align-items:flex-end;gap:3px"><b>${o}/${t}</b><span class="badge ${dd ? 'b-bad' : pp ? 'b-warn' : o === t ? 'b-ok' : 'b-grey'}">${dd ? dd + ' sin pagar' : pp ? pp + ' pendiente' + (pp === 1 ? '' : 's') : o === t ? 'Todo pagado' : 'Sin cobro'}</span></span></button>`; }).join('') : `<div class="empty">No hay sesiones de clientes en ${esc(MESES[md.getMonth()])}.<br><span style="font-size:12px">Salen de los eventos de la agenda que llevan el nombre de un cliente.</span></div>`}</div>
     ${L.some(s => s.est.k === 'excl') ? `<span class="muted" style="font-size:12px">${L.filter(s => s.est.k === 'excl').length} sesión(es) marcadas como «no cuenta» no se incluyen.</span>` : ''}
   </div>`;
@@ -2465,7 +2490,8 @@ function sheetClienteMes(cid) {
   const pf = I.some(porFacturar), ok = act.filter(s => s.est.k === 'ok').length;
   openSheet(`<div class="stack">
     <h1 style="font-size:24px">${esc(c.nombre)}</h1>
-    <span class="muted" style="font-size:13px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()} · ${ses(act.length)} · ${ok} pagada${ok === 1 ? '' : 's'}</span>
+    <span class="muted" style="font-size:13px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()} · ${ses(act.length)}${contratoOf(cid) ? ' de ' + contratoOf(cid).n : ''} · ${ok} pagada${ok === 1 ? '' : 's'}</span>
+    ${contratoOf(cid) ? `<span class="muted" style="font-size:13px">Contrato: ${esc(contratoTxt(contratoOf(cid)))} = ${eur(contratoOf(cid).total)} al mes</span>` : ''}
     <div class="card" style="padding:4px 14px;background:var(--bg)">${L.length ? L.map(s => { const e = s.e; return `<button class="li" onclick="abrirSesion('${esc(e.id)}','${e.start}')"><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${diaCorto(s.d)} · ${hm(e.start)}</b><span class="muted" style="font-size:12px">${esc(e.title || '')}</span></span><span class="badge ${mesCls(s.est.k)}" style="text-align:right;white-space:normal;max-width:50%">${esc(s.est.txt)}</span></button>`; }).join('') : '<div class="empty">Sin sesiones este mes.</div>'}</div>
     ${I.length ? `<span class="eyebrow">Cobros apuntados este mes</span><div class="card" style="padding:4px 14px;background:var(--bg)">${I.map(i => `<button class="li" onclick="sheetVerIngreso('${i.id}')"><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${eur(num(i.importe))}</b><span class="muted" style="font-size:12px">${fmtLong(i.fecha)} · ${esc(i.concepto || lineasOf(i).map(l => l.detalle || l.tipo).join(', '))}</span></span><span class="badge ${cobrado(i) ? 'b-ok' : previsto(i) ? 'b-warn' : 'b-bad'}">${cobrado(i) ? 'Cobrado' : previsto(i) ? 'Previsto' : 'Debe'}</span>${facturado(i) ? '<span class="badge b-grey">Facturado</span>' : ''}</button>`).join('')}</div>` : ''}
     <div class="col" style="gap:6px"><span class="eyebrow">Datos para la factura</span>

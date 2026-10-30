@@ -32,6 +32,9 @@ Facturas → botón **Editar** en cada factura (también desde «Factura creada�
 ## Unir clientes duplicados
 Ajustes → Clientes → abre el cliente que quieres conservar → **Unir con un cliente duplicado…** → elige el duplicado. Sus cobros (con sus facturas) pasan al cliente que te quedas, se rellenan sus datos vacíos (CIF, dirección, email) con los del duplicado y el duplicado se borra.
 
+## Precio por sesión y sesiones al mes
+En la ficha del cliente: **precio por sesión** y **sesiones al mes** (para clubes y grupos, donde el precio cambia con el nº de deportistas). El importe del mes se calcula solo (precio × sesiones), se propone al «Apuntar el mes» y sale en la factura como «12 sesiones × 25 €». En «Sesiones del mes» se ve cuántas sesiones llevas frente a las del contrato.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
