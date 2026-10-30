@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v56';
+const VERSION = 'v57';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -482,6 +482,7 @@ async function loadWeek(mon, force) {
   try {
     const r = await api('agenda', { from: mon, to: addDays(mon, 7), fresh: force && S._manualRefresh ? 1 : 0 }); S._manualRefresh = false;
     const tmps = (S.agenda[mon] || []).filter(e => e && e._tmp);
+    const vistos = {}; r.events = r.events.filter(e => { const k = e.title + '|' + e.start + '|' + e.end; if (vistos[k]) return false; vistos[k] = 1; return true; });   // misma cita en dos calendarios
     S.agenda[mon] = r.events.concat(tmps.filter(t => !r.events.some(e => e.title === t.title && e.start === t.start)));
     if (S.evOv) Object.keys(S.evOv).forEach(id => { const o = S.evOv[id]; if (Date.now() - o.t > 300000 || r.events.some(e => e.id === id && e.start === o.start)) delete S.evOv[id]; });
     if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
@@ -929,7 +930,7 @@ async function crearEvento(ev) {
     const cada = +((document.querySelector('#repOpt button.on') || {}).dataset || {}).v || 0;
     const repetir = cada ? { cada, hasta: f.sinfin.checked ? '' : f.hasta.value } : null;
     if (repetir && repetir.hasta && repetir.hasta < date) { toast('La fecha «hasta» es anterior al evento'); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; return; }
-    const data = { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir };
+    const data = { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir, rid: uid() };
     // 1) aparece al instante en la agenda con su área; 2) se guarda en Google Calendar por detrás
     const mon = mondayOf(date), tmp = { id: 'tmp' + uid(), cal: 'Guardando…', calId: '', title, start: data.start + ':00', end: data.end + ':00', allDay: false, location: data.location, cat, _tmp: true };
     if (!S.agenda[mon]) S.agenda[mon] = [];
@@ -2384,7 +2385,7 @@ async function guardarPuntual(ev) {
     const m = metaOf(cid); if (num(m.psuelta) !== imp) await saveMeta(cid, Object.assign({}, m, { psuelta: String(imp) }));
     if (!PT.ev && PT.agenda) {
       const h = PT.hora || '10:00', end = plus1h(h, Math.max(15, num(PT.dur) || 60)), c = clienteOf(cid);
-      try { await api('createEvent', { data: { title: 'Entrenamiento ' + aliasOf(c), cat: m.area || (S.cats[0] || {}).id, start: PT.fecha + 'T' + h, end: PT.fecha + 'T' + end, location: '' } }); markStale(); } catch (e) { toast('Apuntado, pero no se pudo crear en la agenda: ' + e.message); }
+      try { await api('createEvent', { data: { title: 'Entrenamiento ' + aliasOf(c), cat: m.area || (S.cats[0] || {}).id, start: PT.fecha + 'T' + h, end: PT.fecha + 'T' + end, location: '', rid: uid() } }); markStale(); } catch (e) { toast('Apuntado, pero no se pudo crear en la agenda: ' + e.message); }
     }
     closeSheet(); render();
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar'; }

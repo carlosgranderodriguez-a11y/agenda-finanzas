@@ -323,6 +323,18 @@ function targetCalendar_(catId) {
 }
 
 function createEvent_(d) {
+  // anti-duplicados: si la app reenvía la misma cita (el servidor tardó y creyó que había fallado), devuelve la que ya existe
+  var lock = LockService.getScriptLock(); lock.waitLock(20000);
+  try {
+    var cache = CacheService.getScriptCache(), rid = d.rid ? 'ev_' + String(d.rid) : '';
+    if (rid) { var hit = cache.get(rid); if (hit) return JSON.parse(hit); }
+    var r = createEventOnce_(d);
+    if (rid) cache.put(rid, JSON.stringify(r), 21600);
+    return r;
+  } finally { lock.releaseLock(); }
+}
+
+function createEventOnce_(d) {
   var cal = targetCalendar_(d.cat);
   var opts = { location: d.location || '' };
   if (d.repetir && num_(d.repetir.cada) > 0) {
@@ -332,7 +344,10 @@ function createEvent_(d) {
     var serie = cal.createEventSeries(d.title, parseLocal_(d.start), parseLocal_(d.end), rule, opts);
     return { id: serie.getId(), cal: cal.getName(), serie: true };
   }
-  var ev = cal.createEvent(d.title, parseLocal_(d.start), parseLocal_(d.end), opts);
+  var st = parseLocal_(d.start), en = parseLocal_(d.end);
+  var ya = cal.getEvents(st, en).filter(function (x) { return x.getTitle() === d.title && x.getStartTime().getTime() === st.getTime() && x.getEndTime().getTime() === en.getTime(); })[0];
+  if (ya) return { id: ya.getId(), cal: cal.getName(), repetida: true };
+  var ev = cal.createEvent(d.title, st, en, opts);
   return { id: ev.getId(), cal: cal.getName() };
 }
 
