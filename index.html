@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v55';
+const VERSION = 'v56';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2140,7 +2140,7 @@ function renderFactura() {
     </div>
     <span class="muted" style="font-size:12px">Emite: ${esc([cfgF('emisor_nombre', ''), cfgF('emisor_nif', '') && 'NIF ' + cfgF('emisor_nif', ''), cfgF('emisor_direccion', '')].filter(Boolean).join(' · ') || 'faltan tus datos')} · se cambia en Ajustes</span>
     <label class="f">Fecha de la factura<input class="in" type="date" value="${FA.fecha}" onchange="FA.fecha=this.value"></label>
-    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FA.lineas.map((l, k) => `<div class="col" style="gap:4px"><div class="row" style="gap:8px"><input class="in" aria-label="Concepto" value="${esc(l.concepto)}" oninput="FA.lineas[${k}].concepto=this.value" style="background:var(--bg)"><input class="in" aria-label="Importe" inputmode="decimal" value="${esc(l.importe)}" oninput="FA.lineas[${k}].importe=this.value;updFa()" style="width:100px;flex:none;background:var(--bg);text-align:right;font-weight:700"></div>${FA.verSes ? `<div class="row" style="gap:8px"><input class="in" aria-label="Número de sesiones" inputmode="numeric" value="${esc(l.cant || '')}" placeholder="Nº sesiones" oninput="FA.lineas[${k}].cant=this.value;updFa()" style="width:110px;flex:none;background:var(--bg)"><span class="muted" id="faU${k}" style="font-size:12px">${faUnitTxt(l)}</span></div>` : ''}</div>`).join('')}</div>
+    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FA.lineas.map((l, k) => `<div class="col" style="gap:4px"><div class="row" style="gap:8px"><input class="in" aria-label="Concepto" value="${esc(l.concepto)}" oninput="FA.lineas[${k}].concepto=this.value" style="background:var(--bg)"><input class="in" aria-label="Importe" inputmode="decimal" value="${esc(l.importe)}" oninput="FA.lineas[${k}].importe=this.value;updFa()" style="width:100px;flex:none;background:var(--bg);text-align:right;font-weight:700">${FA.lineas.length > 1 ? `<button type="button" aria-label="Quitar concepto" onclick="faQuitarLinea(${k})" style="flex:none;width:36px;height:44px;border:0;border-radius:12px;background:var(--bg);color:var(--bad);font-size:20px;font-weight:700">×</button>` : ''}</div>${FA.verSes ? `<div class="row" style="gap:8px"><input class="in" aria-label="Número de sesiones" inputmode="numeric" value="${esc(l.cant || '')}" placeholder="Nº sesiones" oninput="FA.lineas[${k}].cant=this.value;updFa()" style="width:110px;flex:none;background:var(--bg)"><span class="muted" id="faU${k}" style="font-size:12px">${faUnitTxt(l)}</span></div>` : ''}</div>`).join('')}<button type="button" class="btn" style="background:var(--bg);height:42px" onclick="faAddLinea()">+ Añadir concepto</button></div>
     <label class="row" style="gap:10px;font-size:14px;align-items:flex-start"><input type="checkbox" ${FA.verSes ? 'checked' : ''} style="width:22px;height:22px;flex:none;accent-color:var(--dark)" onchange="FA.verSes=this.checked;renderFactura()"><span>Mostrar en el PDF el <b>nº de sesiones</b> y el <b>precio por sesión</b><br><span class="muted" style="font-size:12px">Añade las columnas «Sesiones» y «Precio/sesión» a la factura. Se recuerda para este cliente.</span></span></label>
     <div class="opt"><button type="button" class="${FA.incluido ? 'on' : ''}" onclick="FA.incluido=true;renderFactura()">Importe con IVA incluido</button><button type="button" class="${!FA.incluido ? 'on' : ''}" onclick="FA.incluido=false;renderFactura()">Importe = base</button></div>
     <div class="grid2">
@@ -2156,6 +2156,8 @@ function renderFactura() {
     <span class="muted" style="font-size:12px">${FA.edit ? 'Se genera un PDF nuevo con el mismo número y el anterior pasa a la papelera de tu Drive.' : `Se numera sola (siguiente: ${esc(cfgF('serie_factura', FA.fecha.slice(0, 4) + '-'))}${String(cfgF('siguiente_numero', '1')).padStart(3, '0')}), se guarda en PDF en tu Google Drive (carpeta del trimestre) y el ingreso queda como facturado.`}</span>
   </form>`);
 }
+function faAddLinea() { FA.lineas.push({ concepto: '', importe: '', cant: '' }); renderFactura(); setTimeout(() => { const e = document.querySelectorAll('#sheet input[aria-label="Concepto"]'); if (e.length) e[e.length - 1].focus(); }, 50); }
+function faQuitarLinea(k) { if (FA.lineas.length > 1) { FA.lineas.splice(k, 1); renderFactura(); } }
 function faTotHTML(t) { return `<div class="r"><span>Base imponible</span><span>${eurRaw(t.base, true)}</span></div><div class="r"><span>+ IVA ${num(FA.iva)}%</span><span>${eurRaw(t.iva, true)}</span></div>${num(FA.irpf) ? `<div class="r"><span>− IRPF ${num(FA.irpf)}%</span><span>− ${eurRaw(t.irpf, true)}</span></div>` : ''}<div style="border-top:1px solid #3A3C42;margin:4px 0"></div><div class="row between"><b>Total factura</b><span class="big" style="font-size:28px">${eurRaw(t.total, true)}</span></div>`; }
 // precio por sesión de una línea (sobre la base imponible, que es lo que sale en el PDF)
 function faUnitTxt(l) {
@@ -2166,7 +2168,7 @@ function faUnitTxt(l) {
 function updFa() { const e = $('#faTot'); if (e) e.innerHTML = faTotHTML(faCalc()); FA.lineas.forEach((l, k) => { const u = $('#faU' + k); if (u) u.textContent = faUnitTxt(l); }); }
 function faPayload() {
   const c = clienteOf(FA.cid), t = faCalc();
-  return { ingId: FA.ingId, numero: FA.edit ? FA.numero : undefined, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas.map(l => Object.assign({}, l, FA.verSes ? { concepto: conceptoSinSesiones(l.concepto) } : {})), ver_sesiones: !!FA.verSes, pago: { metodo: FA.pago, iban: FA.pago === 'transferencia' ? (FA.iban || '').replace(/\s+/g, ' ').trim() : '' }, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
+  return { ingId: FA.ingId, numero: FA.edit ? FA.numero : undefined, fecha: FA.fecha, cliente: { nombre: (FA.nombre || '').trim() || c.nombre, nif: FA.nif.trim(), direccion: FA.direccion.trim(), email: (FA.email || '').trim() }, lineas: t.lineas.filter(l => l.base !== 0).map(l => Object.assign({}, l, FA.verSes ? { concepto: conceptoSinSesiones(l.concepto) } : {})), ver_sesiones: !!FA.verSes, pago: { metodo: FA.pago, iban: FA.pago === 'transferencia' ? (FA.iban || '').replace(/\s+/g, ' ').trim() : '' }, iva: num(FA.iva), irpf: num(FA.irpf), totales: { base: t.base, iva: t.iva, irpf: t.irpf, total: t.total } };
 }
 async function previewFactura() {
   try {
