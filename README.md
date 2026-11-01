@@ -41,6 +41,8 @@ Al generar o editar una factura hay una casilla **«Mostrar en el PDF el nº de 
 ## Tipos de cliente y facturación por cobro
 Cada cliente es de una clase (Ajustes → Clientes, agrupados por clase): **Empresa / club** (+ IVA − IRPF), **Particular facturado** (IVA incluido) o **Efectivo** (sin factura). Además, cada cobro tiene su interruptor **«¿Va a facturación?»** (en el cobro, en «Editar cobro» y en «Entrenamiento puntual»): los de efectivo van por defecto fuera y los mandas a facturación uno a uno; los demás van dentro salvo que digas que no. Todo cuenta en tus totales; solo lo que se factura aparece en «Hacer facturas» y llega al gestor. «Mes» muestra el dinero por tipo de cliente. Los cobros de clientes **Efectivo** se apuntan ya **cobrados en mano**, y van a la **lista de efectivo** (Mes → «Ver lista de efectivo» o Ingresos → «Efectivo»): por mes, con lo que va a facturación y lo que queda sin factura. No requiere cambios en Apps Script.
 
+Un cliente de efectivo puede pagar **en mano o por Bizum** («¿Cómo te paga?» en su ficha): sus cobros nacen pagados con ese método. Al guardar el cliente, si tiene cobros sin cobrar, la app pregunta si los marca como pagados.
+
 ### Efectivo «a final de mes»
 En la ficha de un cliente de efectivo, **¿Cuándo te paga? → A final de mes**: sus cobros no nacen pagados y sus sesiones de la agenda cuentan como «por cobrar». En la ficha del mes del cliente, **Cobrar sesiones** paga las hechas hasta la fecha que elijas (propone nº de sesiones × precio); las siguientes siguen contando como por cobrar hasta el próximo pago. Cada pago guarda «hasta el día X».
 

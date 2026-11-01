@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v63';
+const VERSION = 'v64';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1038,13 +1038,13 @@ function viewEfectivo() {
   const cob = L.filter(cobrado), deb = L.filter(i => !cobrado(i)), fact = cob.filter(vaFactura), sin = cob.filter(noFacturar);
   const fd = f => { const x = parseD(f); return x.getDate() + ' ' + MES_C[x.getMonth()]; };
   const fila = i => { const c = clienteOf(i.cliente_id), va = vaFactura(i);
-    return `<div class="li" style="align-items:center;gap:8px"><button class="row grow" style="gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${fd(i.fecha)}${i.concepto ? ' · ' + esc(i.concepto) : ''}</span></span><b>${eur(num(i.importe))}</b></button>
+    return `<div class="li" style="align-items:center;gap:8px"><button class="row grow" style="gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${fd(i.fecha)}${i.metodo ? ' · ' + metNom(i.metodo) : ''}${i.concepto ? ' · ' + esc(i.concepto) : ''}</span></span><b>${eur(num(i.importe))}</b></button>
       ${facturado(i) ? '<span class="badge b-grey">Facturado</span>' : `<button type="button" class="badge ${va ? 'b-warn' : 'b-grey'}" style="border:0;cursor:pointer" onclick="setDestino('${i.id}',${!va},true)">${va ? 'A facturación' : 'Sin factura'}</button>`}
     </div>`; };
   return `<div class="stack">${demoBanner()}
-    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Efectivo</h1></div>
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Efectivo y Bizum</h1></div>
     <div class="row between"><button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button><h1 style="font-size:22px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()}</h1><button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button></div>
-    <div class="hero"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Cobrado en efectivo</span><span class="big" style="font-size:40px">${eur(sumI(cob))}</span>
+    <div class="hero"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Cobrado sin factura en mano o Bizum</span><span class="big" style="font-size:40px">${eur(sumI(cob))}</span>
       <div class="grid3"><div class="mini"><span>Cobros</span><span>${cob.length}</span></div><div class="mini"><span>A facturación</span><span style="color:#F0B95B">${eur0(sumI(fact))}</span></div><div class="mini"><span>Sin factura</span><span style="color:#7FD1AE">${eur0(sumI(sin))}</span></div></div></div>
     ${deb.length ? `<span class="eyebrow">Sin cobrar</span><div class="card" style="padding:4px 14px">${deb.map(fila).join('')}</div>` : ''}
     <div class="card" style="padding:4px 14px">${cob.length ? cob.map(fila).join('') : '<div class="empty" style="padding:14px">No hay cobros en efectivo este mes.</div>'}</div>
@@ -1357,12 +1357,12 @@ async function saveIng(o, msg) {
   const saved = await api('saveIngreso', { data: o });
   const k = S.fin.ingresos.findIndex(x => x.id === saved.id);
   if (k >= 0) S.fin.ingresos[k] = saved; else S.fin.ingresos.push(saved);
-  LS.set('af_fin_cache', S.fin); if (msg) toast(msg + (k < 0 && claseOf(clienteOf(saved.cliente_id)) === 'efectivo' && saved.cobrado === 'si' && saved.metodo === 'efectivo' ? ' · pagado en efectivo' : ''));
+  LS.set('af_fin_cache', S.fin); if (msg) toast(msg + (k < 0 && claseOf(clienteOf(saved.cliente_id)) === 'efectivo' && saved.cobrado === 'si' && (saved.metodo === 'efectivo' || saved.metodo === 'bizum') ? ' · pagado ' + (saved.metodo === 'bizum' ? 'por Bizum' : 'en efectivo') : ''));
   return saved;
 }
 let CB = null;
 function sheetCobro(id, ids) { const i = ING().find(x => x.id === id); CB = { id, ids: ids || [id], metodo: i.metodo || metodoHabitual(i.cliente_id), fecha: todayStr() }; renderCobro(); }
-function metodoHabitual(cid) { if (claseOf(clienteOf(cid)) === 'efectivo') return 'efectivo'; const l = ING().filter(x => x.cliente_id === cid && x.metodo).sort((a, b) => (b.fecha_cobro || b.fecha || '').localeCompare(a.fecha_cobro || a.fecha || ''))[0]; return l ? l.metodo : ''; }
+function metodoHabitual(cid) { if (claseOf(clienteOf(cid)) === 'efectivo') return metaOf(cid).metodo === 'bizum' ? 'bizum' : 'efectivo'; const l = ING().filter(x => x.cliente_id === cid && x.metodo).sort((a, b) => (b.fecha_cobro || b.fecha || '').localeCompare(a.fecha_cobro || a.fecha || ''))[0]; return l ? l.metodo : ''; }
 function renderCobro() {
   const i = ING().find(x => x.id === CB.id), c = clienteOf(i.cliente_id);
   openSheet(`<div class="stack"><h1 style="font-size:22px">Cobro · ${esc(c.nombre)}</h1>
@@ -1456,7 +1456,7 @@ function finDeMes() { const [y, m] = S.month.split('-').map(Number); return S.mo
 function fechaDelMes() { return S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01'; }
 // los clientes en efectivo pagan en mano: el cobro nace ya cobrado y va a la lista de efectivo
 const porTramos = cid => claseOf(clienteOf(cid)) === 'efectivo' && metaOf(cid).pago === 'mes';
-const efectivoYa = (o, fecha) => { if (claseOf(clienteOf(o.cliente_id)) === 'efectivo' && !porTramos(o.cliente_id)) Object.assign(o, { cobrado: 'si', fecha_cobro: fecha || todayStr(), metodo: 'efectivo' }); return o; };
+const efectivoYa = (o, fecha) => { if (claseOf(clienteOf(o.cliente_id)) === 'efectivo' && !porTramos(o.cliente_id)) Object.assign(o, { cobrado: 'si', fecha_cobro: fecha || todayStr(), metodo: metodoHabitual(o.cliente_id) }); return o; };
 function nuevoIngresoDe(cid, tipo, imp, det) {
   return efectivoYa({ id: uid(), fecha: finDeMes(), cliente_id: cid, concepto: MESES[parseD(S.month + '-01').getMonth()], importe: String(num(imp)), cobrado: 'no', fecha_cobro: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: num(imp), detalle: det || '' }]) });
 }
@@ -1605,7 +1605,7 @@ function pickCliente(id, silent) {
   const c = clienteOf(id);
   FF.cliente_id = id;
   if (!FF.id && !FF._touched) {
-    if (claseOf(c) === 'efectivo' && !porTramos(id)) Object.assign(FF, { cobrado: 'si', fecha_cobro: todayStr(), metodo: 'efectivo' });
+    if (claseOf(c) === 'efectivo' && !porTramos(id)) Object.assign(FF, { cobrado: 'si', fecha_cobro: todayStr(), metodo: metodoHabitual(id) });
     // copia el desglose del último ingreso de ese cliente; si no hay, su importe habitual
     const last = ING().filter(i => i.cliente_id === id).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''))[0];
     const defT = metaOf(id).tipo || tiposList()[0];
@@ -1789,7 +1789,7 @@ function sheetCliente(id, back) {
   CC_back = !!back;
   const src = id ? S.fin.clientes.find(x => x.id === id) : null;
   CC = src ? Object.assign({}, src) : { nombre: '', nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' };
-  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || ''; CC._psesion = m.psesion || ''; CC._sesmes = m.sesmes || ''; CC._pago = m.pago || '';
+  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || ''; CC._psesion = m.psesion || ''; CC._sesmes = m.sesmes || ''; CC._pago = m.pago || ''; CC._metodo = m.metodo || '';
   renderClienteSheet();
 }
 function ccContratoHTML() {
@@ -1839,7 +1839,8 @@ function renderClienteSheet() {
     <div class="col" style="gap:6px"><span class="eyebrow">Tipo de cliente</span>
       <div class="opt" style="flex-direction:column;gap:6px;background:none;padding:0">${CLASES.map(([k, n, d]) => `<button type="button" class="${claseOf(CC) === k ? 'on' : ''}" style="text-align:left;height:auto;padding:10px 14px;border-radius:14px;${claseOf(CC) === k ? '' : 'background:var(--bg)'}" onclick="ccClase('${k}')"><b>${n}</b><br><span style="font-size:12px;font-weight:400">${d}</span></button>`).join('')}</div>
       <span class="muted" style="font-size:12px">${claseOf(CC) === 'empresa' ? 'Lo que apuntas es la base: la factura suma IVA y resta la retención de IRPF.' : claseOf(CC) === 'particular' ? 'Lo que apuntas es lo que te paga: la factura saca la base y el IVA de dentro.' : 'Sus cobros no salen como «sin facturar». Cuando uno de ellos deba facturarse, entras en el cobro y lo mandas a facturación.'}</span></div>
-    ${claseOf(CC) === 'efectivo' ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Cuándo te paga?</span><div class="opt"><button type="button" class="${CC._pago !== 'mes' ? 'on' : ''}" onclick="CC._pago='';renderClienteSheet()">Al momento</button><button type="button" class="${CC._pago === 'mes' ? 'on' : ''}" onclick="CC._pago='mes';renderClienteSheet()">A final de mes</button></div><span class="muted" style="font-size:12px">${CC._pago === 'mes' ? 'Sus sesiones se van contando como «por cobrar». Cuando te pague, pulsas «Cobrar sesiones»: se pagan las hechas hasta ese día y las siguientes siguen contando.' : 'Cada cobro que apuntas queda ya pagado en mano.'}</span></div>` : ''}
+    ${claseOf(CC) === 'efectivo' ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te paga?</span><div class="opt"><button type="button" class="${CC._metodo !== 'bizum' ? 'on' : ''}" onclick="CC._metodo='';renderClienteSheet()">En mano</button><button type="button" class="${CC._metodo === 'bizum' ? 'on' : ''}" onclick="CC._metodo='bizum';renderClienteSheet()">Bizum</button></div></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Cuándo te paga?</span><div class="opt"><button type="button" class="${CC._pago !== 'mes' ? 'on' : ''}" onclick="CC._pago='';renderClienteSheet()">Al momento</button><button type="button" class="${CC._pago === 'mes' ? 'on' : ''}" onclick="CC._pago='mes';renderClienteSheet()">A final de mes</button></div><span class="muted" style="font-size:12px">${CC._pago === 'mes' ? 'Sus sesiones se van contando como «por cobrar». Cuando te pague, pulsas «Cobrar sesiones»: se pagan las hechas hasta ese día y las siguientes siguen contando.' : 'Cada cobro que apuntas queda ya pagado en mano.'}</span></div>` : ''}
     ${claseOf(CC) !== 'efectivo' ? `<div class="col" style="gap:6px"><span class="eyebrow">IVA en sus facturas</span><div class="opt">${[['21', '21%'], ['10', '10%'], ['0', 'Sin IVA']].map(([v, l]) => `<button type="button" class="${String(CC.iva === undefined || CC.iva === '' ? '21' : num(CC.iva)) === v ? 'on' : ''}" onclick="CC.iva='${v}';renderClienteSheet()">${l}</button>`).join('')}</div></div>` : ''}
     <label class="f">Notas<textarea class="in" oninput="CC.notas=this.value" placeholder="Ej. paga a 30 días, factura trimestral…">${esc(CC.notas)}</textarea></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${CLIENT_COLORS.map(c => `<button type="button" aria-label="Color ${c}" onclick="CC.color='${c}';renderClienteSheet()" style="width:36px;height:36px;border-radius:12px;border:${CC.color === c ? '3px solid var(--ink)' : '0'};background:${c}"></button>`).join('')}</div></div>
@@ -1853,7 +1854,7 @@ async function guardarCliente(ev) {
   try {
     const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC);
     if (num(CC._psesion) > 0 && Math.round(num(CC._sesmes)) > 0) data.tarifa = String(Math.round(num(CC._psesion) * Math.round(num(CC._sesmes)) * 100) / 100);
-    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim(), psesion: String(num(CC._psesion) || ''), sesmes: String(Math.round(num(CC._sesmes)) || ''), pago: claseOf(CC) === 'efectivo' && CC._pago === 'mes' ? 'mes' : '' };
+    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim(), psesion: String(num(CC._psesion) || ''), sesmes: String(Math.round(num(CC._sesmes)) || ''), pago: claseOf(CC) === 'efectivo' && CC._pago === 'mes' ? 'mes' : '', metodo: claseOf(CC) === 'efectivo' && CC._metodo === 'bizum' ? 'bizum' : '' };
     Object.keys(data).forEach(k => { if (k[0] === '_') delete data[k]; });
     if (!data.id) data.id = uid();
     const prevArea = metaOf(data.id).area || '';
@@ -1863,6 +1864,11 @@ async function guardarCliente(ev) {
     if (area !== prevArea) await syncAreaKeywords(extra.alias || c.nombre, area, prevArea);
     const i = S.fin.clientes.findIndex(x => x.id === c.id); if (i >= 0) S.fin.clientes[i] = c; else S.fin.clientes.push(c);
     LS.set('af_fin_cache', S.fin); toast('Cliente guardado');
+    const pen = claseOf(c) === 'efectivo' && !porTramos(c.id) ? ING().filter(i => i.cliente_id === c.id && !cobrado(i)) : [];
+    if (pen.length && await ask('«' + c.nombre + '» paga ' + (metodoHabitual(c.id) === 'bizum' ? 'por Bizum' : 'en mano') + ' y tiene ' + pen.length + (pen.length === 1 ? ' cobro' : ' cobros') + ' sin cobrar (' + eur(sumI(pen)) + '). ¿Los marco como pagados?', 'Sí, ya pagó')) {
+      for (const i of pen) await saveIng(Object.assign({}, i, { cobrado: 'si', fecha_cobro: todayStr(), metodo: metodoHabitual(c.id), facturado: i.facturado === 'si' ? 'si' : 'nunca' }), '');
+      toast(pen.length + (pen.length === 1 ? ' cobro marcado' : ' cobros marcados') + ' como pagados');
+    }
     if (CC_back && FF) { FF.cliente_id = c.id; FF._touched = false; pickCliente(c.id); } else if (CC_back === 'ficha') { render(); sheetFicha(c.id); } else { closeSheet(); render(); }
   } catch (e) { toast(e.message); }
 }
