@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v65';
+const VERSION = 'v66';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1008,12 +1008,14 @@ const metChips = (cur, fn) => `<div class="opt" style="flex-wrap:wrap">${METODOS
 const CLASES = [['empresa', 'Empresa / club', 'Se factura con IVA y retención de IRPF'], ['particular', 'Particular facturado', 'Se factura con el IVA incluido'], ['efectivo', 'Efectivo', 'Sin factura, salvo los cobros que tú mandes a facturación']];
 const claseOf = c => (c.factura || 'si') === 'no' ? 'efectivo' : c.tipo_fiscal === 'empresa' ? 'empresa' : 'particular';
 const claseNom = k => (CLASES.find(x => x[0] === k) || CLASES[1])[1];
-const noFacturar = i => { if (i.facturado === 'si' || i.facturado === 'pend') return false; return i.facturado === 'nunca' || claseOf(clienteOf(i.cliente_id)) === 'efectivo'; };
+// lo cobrado en mano o por Bizum no se factura salvo que tú lo mandes a facturación (facturado = 'pend')
+const enManoBizum = i => cobrado(i) && (i.metodo === 'efectivo' || i.metodo === 'bizum');
+const noFacturar = i => { if (i.facturado === 'si' || i.facturado === 'pend') return false; return i.facturado === 'nunca' || claseOf(clienteOf(i.cliente_id)) === 'efectivo' || enManoBizum(i); };
 const vaFactura = i => !noFacturar(i);
 async function setDestino(id, va, quiet) {
   const i = ING().find(x => x.id === id); if (!i || facturado(i)) return;
   const ef = claseOf(clienteOf(i.cliente_id)) === 'efectivo';
-  const f = va ? (ef ? 'pend' : 'no') : 'nunca';
+  const f = va ? 'pend' : 'nunca';
   try { await saveIng(Object.assign({}, i, { facturado: f }), va ? 'Va a facturación' : 'No va a facturación'); render(); if (!quiet) sheetVerIngreso(id); } catch (e) { toast(e.message); }
 }
 // sin cobrar: «te deben» si la fecha ya ha llegado; «previsto» si aún no
@@ -1367,7 +1369,7 @@ function renderCobro() {
   const i = ING().find(x => x.id === CB.id), c = clienteOf(i.cliente_id);
   openSheet(`<div class="stack"><h1 style="font-size:22px">Cobro · ${esc(c.nombre)}</h1>
     <span class="big" style="font-size:30px">${eur(num(i.importe))}</span>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te ha pagado?</span>${metChips(CB.metodo, 'setCbM')}</div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te ha pagado?</span>${metChips(CB.metodo, 'setCbM')}${CB.metodo === 'efectivo' || CB.metodo === 'bizum' ? '<span class="muted" style="font-size:12px">Lo cobrado en mano o por Bizum queda sin factura. Si quieres facturarlo, luego pulsa «Mandar a facturación».</span>' : ''}</div>
     <label class="f">Fecha del cobro<input class="in" type="date" value="${CB.fecha}" onchange="CB.fecha=this.value" style="background:var(--bg)"></label>
     <button class="btn primary" onclick="guardarCobro()">Apuntar cobro</button></div>`);
 }
@@ -1375,14 +1377,14 @@ function setCbM(v) { CB.metodo = v; renderCobro(); }
 async function guardarCobro() {
   if (!CB.metodo) { toast('Elige cómo te ha pagado'); return; }
   const i = ING().find(x => x.id === CB.id);
-  try { for (const id of CB.ids) { const x = ING().find(y => y.id === id); if (x && !cobrado(x)) await saveIng(Object.assign({}, x, { cobrado: 'si', fecha_cobro: CB.fecha, metodo: CB.metodo }), ''); } toast('Cobro apuntado · ' + metNom(CB.metodo)); render(); if (route() === 'facturas') closeSheet(); else sheetVerIngreso(CB.id); }
+  try { for (const id of CB.ids) { const x = ING().find(y => y.id === id); if (x && !cobrado(x)) { const cash = CB.metodo === 'efectivo' || CB.metodo === 'bizum'; await saveIng(Object.assign({}, x, { cobrado: 'si', fecha_cobro: CB.fecha, metodo: CB.metodo }, cash && x.facturado !== 'si' && x.facturado !== 'pend' ? { facturado: 'nunca' } : {}), ''); } } toast('Cobro apuntado · ' + metNom(CB.metodo) + (CB.metodo === 'efectivo' || CB.metodo === 'bizum' ? ' · sin factura' : '')); render(); if (route() === 'facturas') closeSheet(); else sheetVerIngreso(CB.id); }
   catch (e) { toast(e.message); }
 }
 async function toggleIng(id, field) {
   const i = ING().find(x => x.id === id);
   const o = Object.assign({}, i);
   if (field === 'cobrado') { o.cobrado = cobrado(i) ? 'no' : 'si'; o.fecha_cobro = o.cobrado === 'si' ? todayStr() : ''; if (o.cobrado === 'no') o.metodo = ''; }
-  else { o.facturado = facturado(i) ? (claseOf(clienteOf(i.cliente_id)) === 'efectivo' ? 'pend' : 'no') : 'si'; if (o.facturado !== 'si') o.num_factura = ''; }
+  else { o.facturado = facturado(i) ? 'pend' : 'si'; if (o.facturado !== 'si') o.num_factura = ''; }
   try { await saveIng(o, field === 'cobrado' ? (o.cobrado === 'si' ? 'Apuntado como cobrado' : 'Vuelve a pendiente') : 'Actualizado'); render(); sheetVerIngreso(id); }
   catch (e) { toast(e.message); }
 }
@@ -1613,7 +1615,7 @@ function pickCliente(id, silent) {
   }
   if (!silent) renderIngresoSheet();
 }
-function ffDest(va) { FF.facturado = va ? (claseOf(clienteOf(FF.cliente_id)) === 'efectivo' ? 'pend' : 'no') : 'nunca'; renderIngresoSheet(); }
+function ffDest(va) { FF.facturado = va ? 'pend' : 'nunca'; renderIngresoSheet(); }
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
@@ -2507,7 +2509,7 @@ function renderPuntual() {
   </form>`);
 }
 function ptCli(id) { const m = metaOf(id), c = clienteOf(id); PT.cid = id; PT.fact = ''; PT.nuevo = ''; PT.imp = String(num(m.psuelta) || num(c.tarifa) || PT.imp || ''); if (m.tipo) PT.tipo = m.tipo; PT.metodo = metodoHabitual(id) || PT.metodo; renderPuntual(); }
-function ptFact() { return PT.fact ? PT.fact === 'si' : !(PT.cid && claseOf(clienteOf(PT.cid)) === 'efectivo'); }
+function ptFact() { return PT.fact ? PT.fact === 'si' : !((PT.cid && claseOf(clienteOf(PT.cid)) === 'efectivo') || (PT.cobrado === 'si' && (PT.metodo === 'efectivo' || PT.metodo === 'bizum'))); }
 function setPtM(v) { PT.metodo = v; renderPuntual(); }
 async function guardarPuntual(ev) {
   ev.preventDefault();
@@ -2522,7 +2524,7 @@ async function guardarPuntual(ev) {
       if (ex) cid = ex.id; else { const c = await api('saveCliente', { data: { id: uid(), nombre: n, nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; }
     }
     const line = { tipo: PT.tipo, importe: imp, detalle: PT.det || 'Entrenamiento puntual', bono: 1 }; if (PT.ev) line.ev = PT.ev;
-    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: PT.det || 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: ptFact() ? (claseOf(clienteOf(cid)) === 'efectivo' ? 'pend' : 'no') : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
+    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: PT.det || 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: ptFact() ? 'pend' : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
     const m = metaOf(cid); if (num(m.psuelta) !== imp) await saveMeta(cid, Object.assign({}, m, { psuelta: String(imp) }));
     if (!PT.ev && PT.agenda) {
       const h = PT.hora || '10:00', end = plus1h(h, Math.max(15, num(PT.dur) || 60)), c = clienteOf(cid);

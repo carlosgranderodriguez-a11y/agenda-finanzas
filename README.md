@@ -55,6 +55,9 @@ En «Hacer facturas», cada cliente tiene **No facturar…**: los cobros marcado
 ## Cobro ya incluido en una factura hecha
 En un cobro sin facturar, **«Ya va incluido en una factura hecha…»** deja elegir la factura (p. ej. la mensual de una empresa) y lo enlaza a ella: queda facturado con ese número, sin crear otra factura ni duplicar importes para el gestor; opcionalmente pasa el cobro al cliente de esa factura y lo marca como pagado.
 
+## Lo cobrado en mano o por Bizum no se factura
+Un cobro pagado **en mano o por Bizum** queda **sin factura** y no sale en «Hacer facturas», aunque el cliente sea de los que se facturan. Si quieres facturarlo, ábrelo y pulsa «Mandar a facturación». Transferencia, tarjeta y cobros aún sin pagar siguen saliendo como por facturar.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
