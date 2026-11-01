@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v57';
+const VERSION = 'v58';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1002,7 +1002,19 @@ const facturado = i => i.facturado === 'si';
 const METODOS = [['bizum', 'Bizum'], ['efectivo', 'En mano'], ['transferencia', 'Transferencia'], ['tarjeta', 'Tarjeta']];
 const metNom = m => (METODOS.find(x => x[0] === m) || [0, 'Sin indicar'])[1];
 const metChips = (cur, fn) => `<div class="opt" style="flex-wrap:wrap">${METODOS.map(([v, l]) => `<button type="button" class="${cur === v ? 'on' : ''}" onclick="${fn}('${v}')">${l}</button>`).join('')}</div>`;
-const noFacturar = i => (clienteOf(i.cliente_id).factura || 'si') === 'no';
+/* Tres clases de cliente: empresa (se factura con IVA e IRPF), particular (se factura, IVA incluido) y efectivo (sin factura salvo que tú decidas lo contrario en cada cobro).
+   Un cobro puede ir a facturación o no: facturado = 'si' (ya facturado) · 'pend' (mandado a facturación) · 'nunca' (no va) · otro valor = lo habitual de su cliente. */
+const CLASES = [['empresa', 'Empresa / club', 'Se factura con IVA y retención de IRPF'], ['particular', 'Particular facturado', 'Se factura con el IVA incluido'], ['efectivo', 'Efectivo', 'Sin factura, salvo los cobros que tú mandes a facturación']];
+const claseOf = c => (c.factura || 'si') === 'no' ? 'efectivo' : c.tipo_fiscal === 'empresa' ? 'empresa' : 'particular';
+const claseNom = k => (CLASES.find(x => x[0] === k) || CLASES[1])[1];
+const noFacturar = i => { if (i.facturado === 'si' || i.facturado === 'pend') return false; return i.facturado === 'nunca' || claseOf(clienteOf(i.cliente_id)) === 'efectivo'; };
+const vaFactura = i => !noFacturar(i);
+async function setDestino(id, va) {
+  const i = ING().find(x => x.id === id); if (!i || facturado(i)) return;
+  const ef = claseOf(clienteOf(i.cliente_id)) === 'efectivo';
+  const f = va ? (ef ? 'pend' : 'no') : 'nunca';
+  try { await saveIng(Object.assign({}, i, { facturado: f }), va ? 'Va a facturación' : 'No va a facturación'); render(); sheetVerIngreso(id); } catch (e) { toast(e.message); }
+}
 // sin cobrar: «te deben» si la fecha ya ha llegado; «previsto» si aún no
 const previsto = i => !cobrado(i) && (i.fecha || '') > todayStr();
 const debe = i => !cobrado(i) && !previsto(i);
@@ -1015,6 +1027,21 @@ function monthStats(ym) {
   const cob = I.filter(cobrado).reduce((s, i) => s + num(i.importe), 0);
   const gastos = G.reduce((s, g) => s + num(g.importe), 0);
   return { I, G, ingresos, cobrado: cob, gastos, neto: ingresos - gastos, netoReal: cob - gastos, debe: sumI(I.filter(debe)), previsto: sumI(I.filter(previsto)) };
+}
+function clasesMes(ym) {
+  const o = { empresa: 0, particular: 0, efectivo: 0, efFact: 0, efSin: 0, va: 0, fuera: 0 };
+  ING().filter(i => (i.fecha || '').slice(0, 7) === ym).forEach(i => { const k = claseOf(clienteOf(i.cliente_id)), v = num(i.importe); o[k] += v; if (vaFactura(i)) o.va += v; else o.fuera += v; if (k === 'efectivo') { if (vaFactura(i)) o.efFact += v; else o.efSin += v; } });
+  return o;
+}
+function clasesMesHTML(ym) {
+  const c = clasesMes(ym); if (!(c.empresa + c.particular + c.efectivo)) return '';
+  const r = (n, v, sub) => `<div class="row between" style="font-size:14px;align-items:flex-start"><span class="col" style="gap:1px"><span>${n}</span>${sub ? `<span class="muted" style="font-size:12px">${sub}</span>` : ''}</span><b>${eur0(v)}</b></div>`;
+  return `<div class="card stack" style="gap:8px">
+    <b>Dinero del mes por tipo de cliente</b>
+    ${r('Empresas y clubes', c.empresa)}${r('Particulares facturados', c.particular)}${r('Efectivo', c.efectivo, c.efectivo ? 'a facturación ' + eur0(c.efFact) + ' · sin factura ' + eur0(c.efSin) : '')}
+    <div style="border-top:1px solid var(--line)"></div>
+    <div class="row between" style="font-size:13px"><span>Va a facturación <b>${eur0(c.va)}</b></span><span>Fuera de facturación <b>${eur0(c.fuera)}</b></span></div>
+    <span class="muted" style="font-size:12px">Todo cuenta en tus totales. Solo lo que se factura llega al gestor.</span></div>`;
 }
 function finLoading() { return !S.fin ? `<div class="empty"><span class="spin"></span> Cargando finanzas…</div>` : ''; }
 const sumI = arr => arr.reduce((s, i) => s + num(i.importe), 0);
@@ -1287,8 +1314,9 @@ function sheetVerIngreso(id) {
     ${i.notas ? `<span class="muted" style="font-size:13px;white-space:pre-line">${esc(i.notas)}</span>` : ''}
     <div class="grid2">
       ${cobrado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','cobrado')">Marcar como no cobrado</button>` : `<button class="btn primary" onclick="sheetCobro('${i.id}')">Ya me ha pagado</button>`}
-      ${noFacturar(i) && !facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="sheetFactura('${i.id}')">Facturar igualmente</button>` : i.factura_url ? `<a class="btn dark" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver factura ${esc(i.num_factura || '')}</a>` : facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="sheetFactura('${i.id}')">Crear factura</button>`}
+      ${noFacturar(i) && !facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="setDestino('${i.id}',true)">Mandar a facturación</button>` : i.factura_url ? `<a class="btn dark" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver factura ${esc(i.num_factura || '')}</a>` : facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="sheetFactura('${i.id}')">Crear factura</button>`}
     </div>
+    ${!facturado(i) ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${vaFactura(i) ? 'on' : ''}" onclick="setDestino('${i.id}',true)">Sí, se factura</button><button type="button" class="${noFacturar(i) ? 'on' : ''}" onclick="setDestino('${i.id}',false)">No, sin factura</button></div></div>` : ''}
     ${!facturado(i) && !noFacturar(i) ? `<button class="btn" style="background:var(--bg);height:42px;font-size:13px" onclick="marcarFacturado('${i.id}')">Ya la hice por otro lado (solo marcar)</button>` : ''}
     ${i.num_factura || i.factura_datos ? `<button class="btn dark" onclick="sheetEditarFactura('${i.id}')">Editar la factura ${esc(i.num_factura || '')} (cliente, CIF, dirección…)</button>` : ''}
     <div class="grid2">
@@ -1330,7 +1358,7 @@ async function toggleIng(id, field) {
   const i = ING().find(x => x.id === id);
   const o = Object.assign({}, i);
   if (field === 'cobrado') { o.cobrado = cobrado(i) ? 'no' : 'si'; o.fecha_cobro = o.cobrado === 'si' ? todayStr() : ''; if (o.cobrado === 'no') o.metodo = ''; }
-  else { o.facturado = facturado(i) ? 'no' : 'si'; if (o.facturado === 'no') o.num_factura = ''; }
+  else { o.facturado = facturado(i) ? (claseOf(clienteOf(i.cliente_id)) === 'efectivo' ? 'pend' : 'no') : 'si'; if (o.facturado !== 'si') o.num_factura = ''; }
   try { await saveIng(o, field === 'cobrado' ? (o.cobrado === 'si' ? 'Apuntado como cobrado' : 'Vuelve a pendiente') : 'Actualizado'); render(); sheetVerIngreso(id); }
   catch (e) { toast(e.message); }
 }
@@ -1536,7 +1564,8 @@ function renderIngresoSheet() {
     <label class="f">Fecha del trabajo<input class="in" type="date" value="${esc(FF.fecha)}" onchange="FF.fecha=this.value" required></label>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span>${yn('cobrado', 'Sí, cobrado', 'No, me debe')}</div>
     ${FF.cobrado === 'si' ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Cómo?</span>${metChips(FF.metodo || '', 'setFfM')}</div>` : ''}
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Le has hecho factura?</span>${yn('facturado', 'Sí', 'Todavía no')}</div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Le has hecho factura?</span><div class="opt"><button type="button" class="${FF.facturado === 'si' ? 'on' : ''}" onclick="FF.facturado='si';renderIngresoSheet()">Sí</button><button type="button" class="${FF.facturado !== 'si' ? 'on' : ''}" onclick="if(FF.facturado==='si')FF.facturado='no';renderIngresoSheet()">Todavía no</button></div></div>
+    ${FF.facturado !== 'si' && FF.cliente_id ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${vaFactura(FF) ? 'on' : ''}" onclick="ffDest(true)">Sí, se factura</button><button type="button" class="${noFacturar(FF) ? 'on' : ''}" onclick="ffDest(false)">No, sin factura</button></div></div>` : ''}
     ${FF.facturado === 'si' ? `<label class="f">Nº de factura (opcional)<input class="in" value="${esc(FF.num_factura)}" oninput="FF.num_factura=this.value"></label>` : ''}
     <label class="f">Notas<textarea class="in" oninput="FF.notas=this.value" placeholder="Opcional">${esc(FF.notas)}</textarea></label>
     <button type="submit" class="btn primary">Guardar</button>
@@ -1556,6 +1585,7 @@ function pickCliente(id, silent) {
   }
   if (!silent) renderIngresoSheet();
 }
+function ffDest(va) { FF.facturado = va ? (claseOf(clienteOf(FF.cliente_id)) === 'efectivo' ? 'pend' : 'no') : 'nunca'; renderIngresoSheet(); }
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
@@ -1743,6 +1773,7 @@ function ccContrato() {
   const p = num(CC._psesion), n = Math.round(num(CC._sesmes)), e = $('#ccCon'); if (e) e.innerHTML = ccContratoHTML();
   if (p > 0 && n > 0) { CC.tarifa = String(Math.round(p * n * 100) / 100); const t = $('#ccTar'); if (t) t.value = CC.tarifa; }   // el importe habitual sigue al contrato
 }
+function ccClase(k) { CC.factura = k === 'efectivo' ? 'no' : 'si'; CC.tipo_fiscal = k === 'empresa' ? 'empresa' : 'particular'; renderClienteSheet(); }
 function renderClienteSheet() {
   S._fichaId = null;
   openSheet(`<form class="stack" onsubmit="guardarCliente(event)">
@@ -1777,15 +1808,10 @@ function renderClienteSheet() {
     <label class="f">Nombre fiscal<input class="in" value="${esc(CC._nfiscal)}" oninput="CC._nfiscal=this.value" placeholder="${esc(CC.nombre || 'Nombre o razón social')} (como saldrá en la factura)"></label>
     <div class="grid2"><label class="f">NIF / CIF<input class="in" value="${esc(CC.nif)}" oninput="CC.nif=this.value" placeholder="Para cuando factures"></label><label class="f">Email<input class="in" type="email" value="${esc(CC.email)}" oninput="CC.email=this.value"></label></div>
     <label class="f">Dirección (para la factura)<textarea class="in" oninput="CC.direccion=this.value" placeholder="Calle, CP, ciudad">${esc(CC.direccion || '')}</textarea></label>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Le haces factura?</span><div class="opt">
-      <button type="button" class="${(CC.factura || 'si') === 'si' ? 'on' : ''}" onclick="CC.factura='si';renderClienteSheet()">Sí, cuando yo lo decida</button>
-      <button type="button" class="${CC.factura === 'no' ? 'on' : ''}" onclick="CC.factura='no';renderClienteSheet()">No</button></div>
-      <span class="muted" style="font-size:12px">${CC.factura === 'no' ? 'Sus ingresos no aparecerán como «sin facturar». Si algún día lo necesitas, puedes facturar igualmente desde el ingreso.' : 'Nunca se crea una factura sola: tú pulsas «Crear factura» en el ingreso cuando toque.'}</span></div>
-    ${CC.factura !== 'no' ? `<div class="col" style="gap:6px"><span class="eyebrow">IVA en sus facturas</span><div class="opt">${[['21', '21%'], ['10', '10%'], ['0', 'Sin IVA']].map(([v, l]) => `<button type="button" class="${String(CC.iva === undefined || CC.iva === '' ? '21' : num(CC.iva)) === v ? 'on' : ''}" onclick="CC.iva='${v}';renderClienteSheet()">${l}</button>`).join('')}</div></div>` : ''}
-    <div class="col" style="gap:6px;${CC.factura === 'no' ? 'display:none' : ''}"><span class="eyebrow">Cómo le facturas</span><div class="opt">
-      <button type="button" class="${(CC.tipo_fiscal || 'particular') === 'particular' ? 'on' : ''}" onclick="CC.tipo_fiscal='particular';renderClienteSheet()">Particular · IVA incluido</button>
-      <button type="button" class="${CC.tipo_fiscal === 'empresa' ? 'on' : ''}" onclick="CC.tipo_fiscal='empresa';renderClienteSheet()">Empresa/club · + IVA − IRPF</button></div>
-      <span class="muted" style="font-size:12px">${CC.tipo_fiscal === 'empresa' ? 'Lo que apuntas es la base: la factura suma IVA y resta la retención de IRPF.' : 'Lo que apuntas es lo que te paga: la factura saca la base y el IVA de dentro.'}</span></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Tipo de cliente</span>
+      <div class="opt" style="flex-direction:column;gap:6px;background:none;padding:0">${CLASES.map(([k, n, d]) => `<button type="button" class="${claseOf(CC) === k ? 'on' : ''}" style="text-align:left;height:auto;padding:10px 14px;border-radius:14px;${claseOf(CC) === k ? '' : 'background:var(--bg)'}" onclick="ccClase('${k}')"><b>${n}</b><br><span style="font-size:12px;font-weight:400">${d}</span></button>`).join('')}</div>
+      <span class="muted" style="font-size:12px">${claseOf(CC) === 'empresa' ? 'Lo que apuntas es la base: la factura suma IVA y resta la retención de IRPF.' : claseOf(CC) === 'particular' ? 'Lo que apuntas es lo que te paga: la factura saca la base y el IVA de dentro.' : 'Sus cobros no salen como «sin facturar». Cuando uno de ellos deba facturarse, entras en el cobro y lo mandas a facturación.'}</span></div>
+    ${claseOf(CC) !== 'efectivo' ? `<div class="col" style="gap:6px"><span class="eyebrow">IVA en sus facturas</span><div class="opt">${[['21', '21%'], ['10', '10%'], ['0', 'Sin IVA']].map(([v, l]) => `<button type="button" class="${String(CC.iva === undefined || CC.iva === '' ? '21' : num(CC.iva)) === v ? 'on' : ''}" onclick="CC.iva='${v}';renderClienteSheet()">${l}</button>`).join('')}</div></div>` : ''}
     <label class="f">Notas<textarea class="in" oninput="CC.notas=this.value" placeholder="Ej. paga a 30 días, factura trimestral…">${esc(CC.notas)}</textarea></label>
     <div class="col" style="gap:6px"><span class="eyebrow">Color</span><div class="row" style="gap:8px;flex-wrap:wrap">${CLIENT_COLORS.map(c => `<button type="button" aria-label="Color ${c}" onclick="CC.color='${c}';renderClienteSheet()" style="width:36px;height:36px;border-radius:12px;border:${CC.color === c ? '3px solid var(--ink)' : '0'};background:${c}"></button>`).join('')}</div></div>
     <button class="btn dark" type="submit">Guardar</button>
@@ -1893,12 +1919,12 @@ function viewAjustes() {
       <label class="f">Calendario para eventos nuevos<input class="in" style="background:var(--bg)" data-k="calendario_nuevos" value="${esc(cfg.calendario_nuevos)}" placeholder="Vacío = el principal"></label>
       <button class="btn dark" onclick="guardarEmisor()">Guardar</button>
     </div>` : ''}
-    ${S.fin ? (() => { const L = [...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+    ${S.fin ? (() => { const L = [...S.fin.clientes].sort((a, b) => (CLASES.findIndex(x => x[0] === claseOf(a)) - CLASES.findIndex(x => x[0] === claseOf(b))) || String(a.nombre).localeCompare(String(b.nombre)));
       return `<div class="card stack" style="gap:8px">
       <b>Clientes</b>
       <span class="muted" style="font-size:12px">Da de alta a tus clientes con sus datos fiscales. Al generar una factura ya salen predefinidos y rellenados.</span>
-      <div class="col" style="gap:0">${L.length ? L.map(c => { const fal = (c.factura || 'si') !== 'no' && (!c.nif || !c.direccion);
-        return `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(metaOf(c.id).nfiscal || c.nombre)}</b><span class="muted" style="font-size:12px">${c.nif ? 'NIF/CIF ' + esc(c.nif) : 'Sin NIF'}${c.email ? ' · ' + esc(c.email) : ''}</span></span>${fal ? '<span class="badge b-warn">Faltan datos</span>' : ''}<span class="muted" style="font-size:18px">›</span></button>`; }).join('') : '<div class="empty" style="padding:14px">Aún no tienes clientes.</div>'}</div>
+      <div class="col" style="gap:0">${L.length ? L.map((c, k) => { const fal = (c.factura || 'si') !== 'no' && (!c.nif || !c.direccion), kl = claseOf(c), cab = k === 0 || claseOf(L[k - 1]) !== kl ? `<div class="eyebrow" style="padding:12px 0 4px">${claseNom(kl)} · ${L.filter(x => claseOf(x) === kl).length}</div>` : '';
+        return cab + `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(metaOf(c.id).nfiscal || c.nombre)}</b><span class="muted" style="font-size:12px">${c.nif ? 'NIF/CIF ' + esc(c.nif) : 'Sin NIF'}${c.email ? ' · ' + esc(c.email) : ''}</span></span>${fal ? '<span class="badge b-warn">Faltan datos</span>' : ''}<span class="muted" style="font-size:18px">›</span></button>`; }).join('') : '<div class="empty" style="padding:14px">Aún no tienes clientes.</div>'}</div>
       <button class="btn dark" onclick="sheetCliente()">+ Añadir cliente</button>
     </div>`; })() : ''}
     <div class="card stack" style="gap:8px">
@@ -2361,12 +2387,14 @@ function renderPuntual() {
     <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${PT.tipo === t ? 'on' : ''}" style="${PT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="PT.tipo='${esc(t).replace(/'/g, '')}';renderPuntual()">${esc(t)}</button>`).join('')}</div></div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span><div class="opt"><button type="button" class="${PT.cobrado === 'si' ? 'on' : ''}" onclick="PT.cobrado='si';renderPuntual()">Sí</button><button type="button" class="${PT.cobrado !== 'si' ? 'on' : ''}" onclick="PT.cobrado='no';renderPuntual()">No, me debe</button></div></div>
     ${PT.cobrado === 'si' ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Cómo?</span>${metChips(PT.metodo, 'setPtM')}</div>` : ''}
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${ptFact() ? 'on' : ''}" onclick="PT.fact='si';renderPuntual()">Sí, se factura</button><button type="button" class="${!ptFact() ? 'on' : ''}" onclick="PT.fact='no';renderPuntual()">No, sin factura</button></div></div>
     ${PT.ev ? '<span class="badge b-ok" style="align-self:flex-start">Vinculado a este evento de la agenda</span>' : `<label class="row" style="gap:8px;font-size:14px"><input type="checkbox" ${PT.agenda ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--dark)" onchange="PT.agenda=this.checked;renderPuntual()"> Añadirlo también a la agenda</label>
       ${PT.agenda ? `<div class="grid2"><label class="f">Hora<input class="in" type="time" value="${PT.hora || '10:00'}" onchange="PT.hora=this.value"></label><label class="f">Duración (min)<input class="in" inputmode="numeric" value="${PT.dur}" oninput="PT.dur=this.value"></label></div>` : ''}`}
     <button class="btn primary" type="submit" id="ptBtn">Guardar</button>
   </form>`);
 }
-function ptCli(id) { const m = metaOf(id), c = clienteOf(id); PT.cid = id; PT.nuevo = ''; PT.imp = String(num(m.psuelta) || num(c.tarifa) || PT.imp || ''); if (m.tipo) PT.tipo = m.tipo; PT.metodo = metodoHabitual(id) || PT.metodo; renderPuntual(); }
+function ptCli(id) { const m = metaOf(id), c = clienteOf(id); PT.cid = id; PT.fact = ''; PT.nuevo = ''; PT.imp = String(num(m.psuelta) || num(c.tarifa) || PT.imp || ''); if (m.tipo) PT.tipo = m.tipo; PT.metodo = metodoHabitual(id) || PT.metodo; renderPuntual(); }
+function ptFact() { return PT.fact ? PT.fact === 'si' : !(PT.cid && claseOf(clienteOf(PT.cid)) === 'efectivo'); }
 function setPtM(v) { PT.metodo = v; renderPuntual(); }
 async function guardarPuntual(ev) {
   ev.preventDefault();
@@ -2381,7 +2409,7 @@ async function guardarPuntual(ev) {
       if (ex) cid = ex.id; else { const c = await api('saveCliente', { data: { id: uid(), nombre: n, nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' } }); S.fin.clientes.push(c); cid = c.id; }
     }
     const line = { tipo: PT.tipo, importe: imp, detalle: PT.det || 'Entrenamiento puntual', bono: 1 }; if (PT.ev) line.ev = PT.ev;
-    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: PT.det || 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
+    await saveIng({ id: uid(), fecha: PT.fecha, cliente_id: cid, concepto: PT.det || 'Entrenamiento puntual', importe: String(imp), cobrado: PT.cobrado, fecha_cobro: PT.cobrado === 'si' ? PT.fecha : '', metodo: PT.cobrado === 'si' ? PT.metodo : '', facturado: ptFact() ? (claseOf(clienteOf(cid)) === 'efectivo' ? 'pend' : 'no') : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([line]) }, 'Entreno puntual apuntado');
     const m = metaOf(cid); if (num(m.psuelta) !== imp) await saveMeta(cid, Object.assign({}, m, { psuelta: String(imp) }));
     if (!PT.ev && PT.agenda) {
       const h = PT.hora || '10:00', end = plus1h(h, Math.max(15, num(PT.dur) || 60)), c = clienteOf(cid);
@@ -2473,6 +2501,7 @@ function viewMes() {
       </div>
       <span style="font-size:12px;color:var(--dmuted)">Dinero del mes: cobrado <b style="color:#fff">${eur0(st.cobrado)}</b>${st.debe ? ' · te deben <b style="color:#fff">' + eur0(st.debe) + '</b>' : ''}</span>
     </div>
+    ${clasesMesHTML(ym)}
     <div class="card stack" style="gap:8px;padding:12px 10px">
       <div class="mcal">${cal}</div>
       <div class="legend" style="padding:0 6px"><span><i style="background:var(--ok)"></i>Pagada</span><span><i style="background:var(--bad)"></i>Sin pagar</span><span><i style="background:#C9902A"></i>Pendiente</span><span><i style="background:#9A9DA4"></i>Sin cobro asociado</span></div>

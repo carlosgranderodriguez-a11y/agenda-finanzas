@@ -38,6 +38,9 @@ En la ficha del cliente: **precio por sesión** y **sesiones al mes** (para club
 ## Sesiones y precio por sesión en el PDF
 Al generar o editar una factura hay una casilla **«Mostrar en el PDF el nº de sesiones y el precio por sesión»** (desactivada por defecto). Si la marcas, el PDF añade las columnas *Sesiones* y *Precio/sesión*; el nº de sesiones se propone solo (contrato, bono o concepto) y puedes cambiarlo por línea. El precio por sesión se calcula sobre la base sin IVA. La opción se recuerda para ese cliente. Requiere actualizar `Code.gs` en Apps Script.
 
+## Tipos de cliente y facturación por cobro
+Cada cliente es de una clase (Ajustes → Clientes, agrupados por clase): **Empresa / club** (+ IVA − IRPF), **Particular facturado** (IVA incluido) o **Efectivo** (sin factura). Además, cada cobro tiene su interruptor **«¿Va a facturación?»** (en el cobro, en «Editar cobro» y en «Entrenamiento puntual»): los de efectivo van por defecto fuera y los mandas a facturación uno a uno; los demás van dentro salvo que digas que no. Todo cuenta en tus totales; solo lo que se factura aparece en «Hacer facturas» y llega al gestor. «Mes» muestra el dinero por tipo de cliente. No requiere cambios en Apps Script.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
