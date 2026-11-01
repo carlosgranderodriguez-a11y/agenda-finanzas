@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v68';
+const VERSION = 'v69';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2607,7 +2607,7 @@ const usaTramos = cid => porTramos(cid) || !!hastaPagado(cid);
 function precioSesion(cid) { const m = metaOf(cid), c = clienteOf(cid); return num(m.psesion) || num(m.psuelta) || num(c.tarifa) || 0; }
 let TR = null;
 function sheetCobrarTramo(cid) {
-  const hoy = todayStr(), fin = finDeMes(); TR = { cid, hasta: S.month === hoy.slice(0, 7) ? hoy : fin, p: String(precioSesion(cid) || ''), fact: 'no', imp: null };
+  const hoy = todayStr(), fin = finDeMes(); TR = { cid, hasta: S.month === hoy.slice(0, 7) ? hoy : fin, p: String(precioSesion(cid) || ''), fact: 'no', imp: null, metodo: ['efectivo', 'bizum'].includes(metodoHabitual(cid)) ? metodoHabitual(cid) : 'efectivo' };
   trRecalc(); renderTramo();
 }
 function trSes() { return tramoPend(TR.cid).filter(s => s.d <= TR.hasta); }
@@ -2622,8 +2622,9 @@ function renderTramo() {
     <div class="card" style="padding:4px 14px;background:var(--bg)">${L.length ? L.map(s => `<div class="row between" style="font-size:13px;padding:6px 0"><span>${diaCorto(s.d)} · ${hm(s.e.start)}</span><span class="muted">${esc(s.e.title || '')}</span></div>`).join('') : '<div class="empty" style="padding:12px">No hay sesiones por cobrar hasta esa fecha en este mes.</div>'}</div>
     <div class="grid2"><label class="f">Nº de sesiones<input class="in" inputmode="numeric" value="${TR.n}" oninput="TR.n=Math.round(num(this.value));TR.imp=null;trTot()"></label><label class="f">Precio por sesión (€)<input class="in" inputmode="decimal" value="${esc(TR.p)}" oninput="TR.p=this.value;TR.imp=null;trTot()"></label></div>
     <label class="f">Importe cobrado (€)<input class="in" id="trImp" inputmode="decimal" value="${trImp()}" oninput="TR.imp=this.value" style="font-weight:800;font-size:18px"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te han pagado?</span><div class="opt"><button type="button" class="${TR.metodo === 'efectivo' ? 'on' : ''}" onclick="TR.metodo='efectivo';renderTramo()">En mano</button><button type="button" class="${TR.metodo === 'bizum' ? 'on' : ''}" onclick="TR.metodo='bizum';renderTramo()">Bizum</button></div><span class="muted" style="font-size:12px">Si una parte la pagaron en mano y otra por Bizum, apunta un cobro hasta el día de la primera y luego otro con la otra forma de pago.</span></div>
     <div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${TR.fact === 'si' ? 'on' : ''}" onclick="TR.fact='si';renderTramo()">Sí, se factura</button><button type="button" class="${TR.fact !== 'si' ? 'on' : ''}" onclick="TR.fact='no';renderTramo()">No, sin factura</button></div></div>
-    <button class="btn primary" type="submit" id="trBtn">Apuntar cobro en efectivo</button>
+    <button class="btn primary" type="submit" id="trBtn">Apuntar cobro</button>
   </form>`);
 }
 function trTot() { const e = $('#trImp'); if (e) e.value = trImp(); }
@@ -2634,9 +2635,9 @@ async function guardarTramo(ev) {
   const det = n ? n + (n === 1 ? ' sesión' : ' sesiones') + (num(TR.p) ? ' × ' + String(num(TR.p)).replace('.', ',') + ' €' : '') : 'Sesiones hasta el ' + TR.hasta;
   const tipo = m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]);
   try {
-    await saveIng({ id: uid(), fecha: TR.hasta, cliente_id: TR.cid, concepto: (n || '') + (n ? (n === 1 ? ' sesión' : ' sesiones') + ' hasta el ' : 'Hasta el ') + TR.hasta.slice(8) + '/' + TR.hasta.slice(5, 7), importe: String(imp), cobrado: 'si', fecha_cobro: todayStr(), metodo: 'efectivo', facturado: TR.fact === 'si' ? 'pend' : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: imp, detalle: det, hasta: TR.hasta }]) }, 'Cobro en efectivo apuntado');
+    await saveIng({ id: uid(), fecha: TR.hasta, cliente_id: TR.cid, concepto: (n || '') + (n ? (n === 1 ? ' sesión' : ' sesiones') + ' hasta el ' : 'Hasta el ') + TR.hasta.slice(8) + '/' + TR.hasta.slice(5, 7), importe: String(imp), cobrado: 'si', fecha_cobro: todayStr(), metodo: TR.metodo || 'efectivo', facturado: TR.fact === 'si' ? 'pend' : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: imp, detalle: det, hasta: TR.hasta }]) }, 'Cobro ' + (TR.metodo === 'bizum' ? 'por Bizum' : 'en efectivo') + ' apuntado');
     closeSheet(); render();
-  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Apuntar cobro en efectivo'; }
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Apuntar cobro'; }
 }
 function mesSesiones(ym) {
   const evs = S.monthEv[ym]; if (!evs || !S.fin) return null;
