@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v60';
+const VERSION = 'v61';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1077,7 +1077,7 @@ const tipoName = t => t || 'Sin tipo';
 function lineasOf(i) {
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
   if (!Array.isArray(L) || !L.length) L = [{ tipo: '', importe: num(i.importe), detalle: '' }];
-  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (Array.isArray(l.prevF) && l.prevF.length) o.prevF = l.prevF; if (l.ev) o.ev = l.ev; if (l.hasta) o.hasta = l.hasta; return o; });
+  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (Array.isArray(l.prevF) && l.prevF.length) o.prevF = l.prevF; if (l.ev) o.ev = l.ev; if (l.hasta) o.hasta = l.hasta; if (num(l.cant) > 0) o.cant = num(l.cant); return o; });
 }
 // importe de un ingreso que corresponde a un tipo concreto (o todo si no hay filtro)
 const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).reduce((s, l) => s + l.importe, 0) : num(i.importe);
@@ -1616,7 +1616,7 @@ function ffDest(va) { FF.facturado = va ? (claseOf(clienteOf(FF.cliente_id)) ===
 async function guardarIngreso(ev) {
   if (ev) ev.preventDefault();
   if (!FF.cliente_id) { toast('Elige un cliente'); return; }
-  const lin = FF._lin.filter(l => num(l.importe)).map(l => { const o = { tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (l.hasta) o.hasta = l.hasta; if (l.ev) o.ev = l.ev; return o; });
+  const lin = FF._lin.filter(l => num(l.importe)).map(l => { const o = { tipo: l.tipo, importe: num(l.importe), detalle: (l.detalle || '').trim() }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (l.hasta) o.hasta = l.hasta; if (l.ev) o.ev = l.ev; if (num(l.cant) > 0) o.cant = num(l.cant); return o; });
   if (!lin.length) { toast('Pon el importe'); return; }
   const o = Object.assign({}, FF, { importe: String(lin.reduce((s, l) => s + l.importe, 0)), lineas: JSON.stringify(lin) });
   delete o._lin; delete o._touched;
@@ -2044,6 +2044,7 @@ let FA = null;
 function cfgF(k, d) { const v = S.fin && S.fin.config && S.fin.config[k]; return v == null || v === '' ? d : v; }
 // nº de sesiones de una línea de cobro: bono (menos las previas) → «12 sesiones × 25 €» → contrato del cliente
 function cantDeLinea(l, i) {
+  if (num(l.cant) > 0) return String(Math.round(num(l.cant)));
   if (num(l.bono) > 0) { const n = num(l.bono) - num(l.previas); return String(n > 0 ? n : num(l.bono)); }
   const m = /(\d+)\s*sesi/i.exec(l.detalle || ''); if (m) return m[1];
   const k = contratoOf(i.cliente_id); if (k && Math.abs(num(l.importe) - k.total) < 0.005) return String(k.n);
@@ -2067,27 +2068,46 @@ function sheetFactura(ingId) {
 }
 /* ---- factura nueva a un cliente ya dado de alta (sin cobro previo): crea el cobro pendiente y abre la factura ---- */
 let FN = null;
+const CONCEPTOS_SUG = ['Valoración', 'Entrenamiento personal', 'Planificación', 'Readaptación', 'Sesión suelta', 'Bono de sesiones'];
+const fnLin = (c, q, p) => ({ c: c || '', q: q || '1', p: p || '' });
+const fnTotal = () => FN.lineas.reduce((t, l) => t + Math.round(num(l.q || 1) * num(l.p) * 100) / 100, 0);
 function sheetFacturaNueva() {
   if (!S.fin) return;
-  FN = FN || { cid: '', imp: '', det: '' };
-  const L = [...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre)));
+  FN = FN || { cid: '', lineas: [fnLin()] };
+  const L = [...S.fin.clientes].sort((a, b) => (CLASES.findIndex(x => x[0] === claseOf(a)) - CLASES.findIndex(x => x[0] === claseOf(b))) || String(a.nombre).localeCompare(String(b.nombre)));
+  const c = FN.cid ? clienteOf(FN.cid) : null, k = c ? claseOf(c) : '';
+  const opt = kl => { const g = L.filter(x => claseOf(x) === kl); return g.length ? `<optgroup label="${esc(claseNom(kl))}">${g.map(x => `<option value="${esc(x.id)}" ${x.id === FN.cid ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</optgroup>` : ''; };
   openSheet(`<form class="stack" onsubmit="crearFacturaNueva(event)">
     <h1 style="font-size:24px">Factura a un cliente</h1>
-    ${L.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Cliente</span><div class="chips" style="flex-wrap:wrap">${L.map(c => `<button type="button" class="chip ${FN.cid === c.id ? 'on' : ''}" style="${FN.cid === c.id ? '' : 'background:var(--bg)'}" onclick="fnPick('${c.id}')">${esc(c.nombre)}</button>`).join('')}</div></div>` : '<div class="empty" style="padding:10px">Aún no tienes clientes. Añade el primero y vuelve aquí.</div>'}
-    <button type="button" class="btn" style="background:var(--bg)" onclick="FN=null;sheetCliente()">+ Nuevo cliente</button>
-    <label class="f">Concepto<input class="in" value="${esc(FN.det)}" oninput="FN.det=this.value" placeholder="Servicios de entrenamiento"></label>
-    <label class="f">Importe (€)<input class="in" inputmode="decimal" value="${esc(FN.imp)}" oninput="FN.imp=this.value" placeholder="Lo que le cobras"></label>
-    <span class="muted" style="font-size:12px">Se apunta como cobro pendiente de este cliente y pasas a la factura con sus datos ya rellenados.</span>
+    ${L.length ? `<label class="f">Cliente<select class="in" onchange="fnPick(this.value)" style="appearance:auto;-webkit-appearance:menulist"><option value="" ${FN.cid ? '' : 'selected'}>Elige un cliente…</option>${['empresa', 'particular', 'efectivo'].map(opt).join('')}</select></label>` : '<div class="empty" style="padding:10px">Aún no tienes clientes. Añade el primero y vuelve aquí.</div>'}
+    <button type="button" class="btn" style="background:var(--bg);height:42px" onclick="FN=null;sheetCliente()">+ Nuevo cliente</button>
+    <datalist id="fnSug">${[...tiposList(), ...CONCEPTOS_SUG].filter((x, i, a) => a.indexOf(x) === i).map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    <div class="col" style="gap:8px"><span class="eyebrow">Conceptos</span>${FN.lineas.map((l, j) => `<div class="stack" style="gap:6px;background:var(--bg);border-radius:16px;padding:10px">
+      <div class="row" style="gap:8px"><input class="in" list="fnSug" aria-label="Concepto" value="${esc(l.c)}" placeholder="Ej. Valoración, Entrenamientos, Planificación" oninput="FN.lineas[${j}].c=this.value" style="background:var(--card)">${FN.lineas.length > 1 ? `<button type="button" aria-label="Quitar concepto" onclick="fnDel(${j})" style="flex:none;width:36px;height:44px;border:0;border-radius:12px;background:var(--card);color:var(--bad);font-size:20px;font-weight:700">×</button>` : ''}</div>
+      <div class="row" style="gap:8px;align-items:flex-end"><label class="f" style="width:78px;flex:none">Cantidad<input class="in" inputmode="decimal" value="${esc(l.q)}" oninput="FN.lineas[${j}].q=this.value;fnUpd(${j})" style="background:var(--card)"></label><label class="f grow">Precio unidad (€)<input class="in" inputmode="decimal" value="${esc(l.p)}" oninput="FN.lineas[${j}].p=this.value;fnUpd(${j})" style="background:var(--card)"></label><b id="fnL${j}" style="flex:none;min-width:70px;text-align:right;padding-bottom:14px">${eurRaw(Math.round(num(l.q || 1) * num(l.p) * 100) / 100, true)}</b></div></div>`).join('')}
+      <button type="button" class="btn" style="background:var(--bg);height:42px" onclick="fnAdd()">+ Añadir concepto</button></div>
+    <div class="totals"><div class="row between"><b>Total</b><span class="big" style="font-size:26px" id="fnTot">${eurRaw(fnTotal(), true)}</span></div></div>
+    <span class="muted" style="font-size:12px">${k === 'empresa' ? 'Escribe los precios sin IVA: la factura suma el IVA y resta el IRPF.' : k ? 'Escribe lo que te paga (IVA incluido): la factura saca la base y el IVA de dentro.' : 'Elige el cliente: según su tipo, los precios son sin IVA (empresa) o con IVA incluido (particular).'} Se apunta como cobro pendiente y pasas a la factura con sus datos ya rellenados; allí puedes cambiar todo.</span>
     <button class="btn dark" type="submit">Continuar a la factura</button>
   </form>`);
 }
-function fnPick(id) { const c = clienteOf(id); FN.cid = id; const k = contratoOf(id); if (k) { FN.imp = String(k.total); FN.det = contratoTxt(k); } else if (!FN.imp) FN.imp = String(num(metaOf(id).psuelta) || num(c.tarifa) || '') || ''; sheetFacturaNueva(); }
+function fnUpd(j) { const l = FN.lineas[j], e = $('#fnL' + j), t = $('#fnTot'); if (e) e.textContent = eurRaw(Math.round(num(l.q || 1) * num(l.p) * 100) / 100, true); if (t) t.textContent = eurRaw(fnTotal(), true); }
+function fnAdd() { FN.lineas.push(fnLin()); sheetFacturaNueva(); }
+function fnDel(j) { if (FN.lineas.length > 1) { FN.lineas.splice(j, 1); sheetFacturaNueva(); } }
+function fnPick(id) {
+  FN.cid = id; if (!id) { sheetFacturaNueva(); return; }
+  const c = clienteOf(id), k = contratoOf(id), vacio = FN.lineas.length === 1 && !FN.lineas[0].c && !num(FN.lineas[0].p);
+  if (vacio) { if (k) FN.lineas = [fnLin(contratoTxt(k).replace(/^\s*\d+\s+sesi\w*\s*[×x]\s*[\d.,]+\s*€\s*(·\s*)?/i, '') || 'Entrenamientos', String(k.n), String(k.p))]; else FN.lineas = [fnLin('', '1', String(num(metaOf(id).psuelta) || num(c.tarifa) || ''))]; }
+  sheetFacturaNueva();
+}
 async function crearFacturaNueva(ev) {
   ev.preventDefault();
   if (!FN.cid) { toast('Elige un cliente'); return; }
-  const imp = num(FN.imp); if (!imp) { toast('Pon el importe'); return; }
-  const m = metaOf(FN.cid), det = (FN.det || '').trim() || 'Servicios de entrenamiento';
-  const o = { id: uid(), fecha: todayStr(), cliente_id: FN.cid, concepto: det, importe: String(imp), cobrado: 'no', fecha_cobro: '', metodo: '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: m.tipo || '', importe: imp, detalle: '' }]) };
+  const L = FN.lineas.map(l => ({ c: (l.c || '').trim() || 'Servicios de entrenamiento', q: num(l.q || 1) || 1, imp: Math.round((num(l.q || 1) || 1) * num(l.p) * 100) / 100 })).filter(l => l.imp);
+  if (!L.length) { toast('Pon algún importe'); return; }
+  const m = metaOf(FN.cid), tipos = tiposList(), deft = m.tipo || tipos[0];
+  const lin = L.map(l => ({ tipo: tipos.find(t => t.toLowerCase() === l.c.toLowerCase()) || (l.c.length >= 5 && tipos.find(t => t.toLowerCase().startsWith(l.c.toLowerCase().slice(0, 7)))) || deft, importe: l.imp, detalle: l.c, cant: Math.round(l.q) === l.q ? l.q : 0 }));
+  const o = efectivoYa({ id: uid(), fecha: todayStr(), cliente_id: FN.cid, concepto: '', importe: String(lin.reduce((t, l) => t + l.importe, 0)), cobrado: 'no', fecha_cobro: '', metodo: '', facturado: claseOf(clienteOf(FN.cid)) === 'efectivo' ? 'pend' : 'no', num_factura: '', notas: '', lineas: JSON.stringify(lin) });
   try { const sv = await saveIng(o); FN = null; sheetFactura(sv.id); FA.fromMes = false; render(); }
   catch (e) { toast(e.message); }
 }

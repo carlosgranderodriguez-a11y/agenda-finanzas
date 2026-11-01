@@ -44,6 +44,9 @@ Cada cliente es de una clase (Ajustes → Clientes, agrupados por clase): **Empr
 ### Efectivo «a final de mes»
 En la ficha de un cliente de efectivo, **¿Cuándo te paga? → A final de mes**: sus cobros no nacen pagados y sus sesiones de la agenda cuentan como «por cobrar». En la ficha del mes del cliente, **Cobrar sesiones** paga las hechas hasta la fecha que elijas (propone nº de sesiones × precio); las siguientes siguen contando como por cobrar hasta el próximo pago. Cada pago guarda «hasta el día X».
 
+## Factura a un cliente con varios conceptos
+«Factura a un cliente» ahora tiene un selector de cliente (agrupado por tipo) y una lista de **conceptos**, cada uno con su cantidad y su precio por unidad (valoración, entrenamientos, planificación…), con «+ Añadir concepto» y × para quitar. Se apunta como cobro pendiente y pasa a la factura, donde se puede seguir editando. La cantidad sirve para las columnas «Sesiones» y «Precio/sesión» del PDF.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
