@@ -47,6 +47,9 @@ En la ficha de un cliente de efectivo, **¿Cuándo te paga? → A final de mes**
 ## Factura a un cliente con varios conceptos
 «Factura a un cliente» ahora tiene un selector de cliente (agrupado por tipo) y una lista de **conceptos**, cada uno con su cantidad y su precio por unidad (valoración, entrenamientos, planificación…), con «+ Añadir concepto» y × para quitar. Se apunta como cobro pendiente y pasa a la factura, donde se puede seguir editando. La cantidad sirve para las columnas «Sesiones» y «Precio/sesión» del PDF.
 
+## Quitar cobros de «Hacer facturas» sin borrarlos
+En «Hacer facturas», cada cliente tiene **No facturar…**: los cobros marcados salen de la lista, siguen contando como ingreso y, si estaban sin cobrar, se apuntan como cobrados en mano, Bizum, transferencia o tarjeta. No llegan al gestor. Se puede deshacer desde el cobro («¿Va a facturación?»).
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
