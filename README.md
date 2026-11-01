@@ -58,6 +58,9 @@ En un cobro sin facturar, **«Ya va incluido en una factura hecha…»** deja el
 ## Lo cobrado en mano o por Bizum no se factura
 Un cobro pagado **en mano o por Bizum** queda **sin factura** y no sale en «Hacer facturas», aunque el cliente sea de los que se facturan. Si quieres facturarlo, ábrelo y pulsa «Mandar a facturación». Transferencia, tarjeta y cobros aún sin pagar siguen saliendo como por facturar.
 
+## Resumen del mes por cómo se cobra
+En **Resumen** y en **Mes** hay una tarjeta que reparte el dinero del mes en: **Facturado** (con lo cobrado y lo pendiente), **Por facturar**, **Cobrado en efectivo**, **Cobrado por Bizum** y **Otros sin factura** (transferencia, tarjeta o sin cobrar). Cada cobro cuenta en un solo sitio y la suma da el total del mes.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 

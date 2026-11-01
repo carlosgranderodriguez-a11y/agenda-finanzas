@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v66';
+const VERSION = 'v67';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1053,6 +1053,31 @@ function viewEfectivo() {
     <span class="muted" style="font-size:12px">Los clientes de tipo «Efectivo» se apuntan ya cobrados en mano. Toca la etiqueta de un cobro para mandarlo a facturación o dejarlo sin factura.</span>
   </div>`;
 }
+/* ---- resumen del mes por canal: facturado · por facturar · efectivo · Bizum · otros (cada cobro cuenta en uno solo) ---- */
+function canalesMes(ym) {
+  const o = { fac: [], por: [], efe: [], biz: [], otr: [] };
+  ING().filter(i => (i.fecha || '').slice(0, 7) === ym).forEach(i => {
+    if (facturado(i)) o.fac.push(i); else if (porFacturar(i)) o.por.push(i); else if (cobrado(i) && i.metodo === 'efectivo') o.efe.push(i); else if (cobrado(i) && i.metodo === 'bizum') o.biz.push(i); else o.otr.push(i);
+  });
+  return o;
+}
+function canalesMesHTML(ym) {
+  const c = canalesMes(ym), md = parseD(ym + '-01'), tot = sumI([].concat(c.fac, c.por, c.efe, c.biz, c.otr)); if (!tot) return '';
+  const cn = a => a.length + (a.length === 1 ? ' cobro' : ' cobros');
+  const facC = sumI(c.fac.filter(cobrado)), facP = sumI(c.fac.filter(i => !cobrado(i)));
+  const r = (n, v, sub, go, col) => `<button class="row between" style="border:0;background:none;padding:6px 0;width:100%;text-align:left;gap:8px;align-items:flex-start" ${go ? `onclick="${go}"` : 'disabled'}><span class="col" style="gap:1px;min-width:0"><span style="font-size:14px;font-weight:700;${col ? 'color:' + col : ''}">${n}</span><span class="muted" style="font-size:12px">${sub}</span></span><b style="font-size:16px">${eur0(v)}</b></button>`;
+  return `<div class="card stack" style="gap:2px">
+    <b style="margin-bottom:4px;text-transform:capitalize">Resumen de ${MESES[md.getMonth()]} por cómo se cobra</b>
+    ${r('Facturado', sumI(c.fac), c.fac.length ? cn(c.fac) + ' · cobrado ' + eur0(facC) + (facP ? ' · pendiente ' + eur0(facP) : '') : 'Sin facturas este mes', "go('facturas')")}
+    ${c.por.length ? r('Por facturar', sumI(c.por), cn(c.por) + ' · aún sin factura', "sheetFacturasMes('" + ym + "')", 'var(--warn)') : ''}
+    <div style="border-top:1px solid var(--line);margin:2px 0"></div>
+    ${r('Cobrado en efectivo', sumI(c.efe), c.efe.length ? cn(c.efe) + ' · sin factura' : 'Nada este mes', "go('efectivo')")}
+    ${r('Cobrado por Bizum', sumI(c.biz), c.biz.length ? cn(c.biz) + ' · sin factura' : 'Nada este mes', "go('efectivo')")}
+    ${c.otr.length ? r('Otros sin factura', sumI(c.otr), cn(c.otr) + ' · transferencia, tarjeta o sin cobrar', "S.filter='todos';go('ingresos')") : ''}
+    <div style="border-top:1px solid var(--line);margin:2px 0"></div>
+    <div class="row between"><b>Total del mes</b><b style="font-size:18px">${eur0(tot)}</b></div>
+  </div>`;
+}
 function clasesMes(ym) {
   const o = { empresa: 0, particular: 0, efectivo: 0, efFact: 0, efSin: 0, va: 0, fuera: 0 };
   ING().filter(i => (i.fecha || '').slice(0, 7) === ym).forEach(i => { const k = claseOf(clienteOf(i.cliente_id)), v = num(i.importe); o[k] += v; if (vaFactura(i)) o.va += v; else o.fuera += v; if (k === 'efectivo') { if (vaFactura(i)) o.efFact += v; else o.efSin += v; } });
@@ -1251,6 +1276,7 @@ function viewResumen() {
       ${st.ingresos > 0 && (st.debe || st.previsto) ? `<div class="col" style="gap:6px"><div style="height:10px;border-radius:5px;display:flex;overflow:hidden;background:#24262C"><i style="width:${st.cobrado / st.ingresos * 100}%;background:#7FD1AE"></i><i style="width:${st.debe / st.ingresos * 100}%;background:#F0B95B"></i><i style="width:${st.previsto / st.ingresos * 100}%;background:#8C97F0"></i></div>
         <span style="font-size:12px;color:var(--dmuted)">${st.previsto ? 'Si se cumple todo' : 'Cuando te paguen lo pendiente'}, el mes cerrará en <b style="color:#fff">${eur0(st.ingresos)}</b>${diff !== null ? ` (${diff >= 0 ? '+' : ''}${diff}% vs ${MES_C[parseD(monthAdd(ym, -1) + '-01').getMonth()]})` : ''}</span></div>` : ''}
     </div>
+    ${canalesMesHTML(ym)}
     <div class="grid2">
       <button class="stat" style="background:var(--warnbg);border:0;text-align:left" onclick="S.filter='pendientes';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--warn)">Te deben · ${pend.length}</span><span>${eur0(sumI(pend))}</span><span style="font-size:11px;font-weight:500;color:var(--muted)">Ya hecho y sin pagar</span></button>
       <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='previstos';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--accent)">Previsto · ${prevs.length}</span><span>${eur0(sumI(prevs))}</span><span style="font-size:11px;font-weight:500;color:var(--muted)">Aún no ha llegado la fecha</span></button>
@@ -2657,6 +2683,7 @@ function viewMes() {
       </div>
       <span style="font-size:12px;color:var(--dmuted)">Dinero del mes: cobrado <b style="color:#fff">${eur0(st.cobrado)}</b>${st.debe ? ' · te deben <b style="color:#fff">' + eur0(st.debe) + '</b>' : ''}</span>
     </div>
+    ${canalesMesHTML(ym)}
     ${clasesMesHTML(ym)}
     <div class="card stack" style="gap:8px;padding:12px 10px">
       <div class="mcal">${cal}</div>
