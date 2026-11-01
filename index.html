@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v62';
+const VERSION = 'v63';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1340,6 +1340,7 @@ function sheetVerIngreso(id) {
       ${noFacturar(i) && !facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="setDestino('${i.id}',true)">Mandar a facturación</button>` : i.factura_url ? `<a class="btn dark" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver factura ${esc(i.num_factura || '')}</a>` : facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="sheetFactura('${i.id}')">Crear factura</button>`}
     </div>
     ${!facturado(i) ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${vaFactura(i) ? 'on' : ''}" onclick="setDestino('${i.id}',true)">Sí, se factura</button><button type="button" class="${noFacturar(i) ? 'on' : ''}" onclick="setDestino('${i.id}',false)">No, sin factura</button></div></div>` : ''}
+    ${!facturado(i) ? `<button class="btn" style="background:var(--bg);height:42px;font-size:13px" onclick="sheetEnFactura('${i.id}')">Ya va incluido en una factura hecha…</button>` : ''}
     ${!facturado(i) && !noFacturar(i) ? `<button class="btn" style="background:var(--bg);height:42px;font-size:13px" onclick="marcarFacturado('${i.id}')">Ya la hice por otro lado (solo marcar)</button>` : ''}
     ${i.num_factura || i.factura_datos ? `<button class="btn dark" onclick="sheetEditarFactura('${i.id}')">Editar la factura ${esc(i.num_factura || '')} (cliente, CIF, dirección…)</button>` : ''}
     <div class="grid2">
@@ -2185,6 +2186,36 @@ async function guardarSinFactura() {
     toast(SF.ids.length === 1 ? 'Quitado de facturación · sigue contando' : SF.ids.length + ' cobros quitados de facturación · siguen contando');
     render(); sheetFacturasMes(FM && FM.ym);
   } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Quitar de facturación'; }
+}
+/* ---- un cobro que ya se pagó dentro de una factura hecha (p. ej. la planificación de un atleta que va en la factura mensual de su empresa) ---- */
+let IF_ = null;
+function facturasHechas() {
+  return ING().filter(i => facturado(i) && i.factura_datos).map(i => ({ i, f: fdOf(i) })).filter(x => x.f.numero && !x.f.ref && x.f.fecha).sort((a, b) => b.f.fecha.localeCompare(a.f.fecha) || String(b.f.numero).localeCompare(String(a.f.numero)));
+}
+function sheetEnFactura(id) { IF_ = { id, num: '', cobrar: true, metodo: '', mover: false }; renderEnFactura(); }
+function renderEnFactura() {
+  const i = ING().find(x => x.id === IF_.id), c = clienteOf(i.cliente_id), F = facturasHechas(), sel = F.find(x => x.f.numero === IF_.num);
+  const dest = sel && (S.fin.clientes.find(x => sel.f.cliente && sel.f.cliente.nif && x.nif && String(x.nif).trim().toLowerCase() === String(sel.f.cliente.nif).trim().toLowerCase()) || S.fin.clientes.find(x => sel.f.cliente && sel.f.cliente.nombre && (metaOf(x.id).nfiscal || x.nombre) === sel.f.cliente.nombre));
+  const mover = dest && dest.id !== i.cliente_id ? dest : null, yaCob = !!sel && cobrado(sel.i);
+  openSheet(`<div class="stack">
+    <h1 style="font-size:22px">Incluir en una factura hecha</h1>
+    <span class="muted" style="font-size:13px">${esc(c.nombre)} · ${eur(num(i.importe))} · ${esc(i.concepto || lineasOf(i).map(l => l.detalle || l.tipo).join(', '))}</span>
+    ${F.length ? `<div class="col" style="gap:6px"><span class="eyebrow">¿En qué factura va?</span>${F.slice(0, 15).map(x => `<button type="button" class="card row between" style="text-align:left;border:2px solid ${x.f.numero === IF_.num ? 'var(--dark)' : 'transparent'};background:var(--bg);padding:10px 12px" onclick="IF_.num='${esc(x.f.numero)}';IF_.metodo='';renderEnFactura()"><span class="col" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(x.f.numero)} · ${esc((x.f.cliente && x.f.cliente.nombre) || clienteOf(x.i.cliente_id).nombre)}</b><span class="muted" style="font-size:12px">${fmtLong(x.f.fecha)} · ${cobrado(x.i) ? 'cobrada' : 'sin cobrar'}</span></span><b>${eur(num(x.f.total))}</b></button>`).join('')}</div>` : '<div class="empty">Aún no hay facturas hechas.</div>'}
+    ${sel ? `${mover ? `<label class="row" style="gap:8px;font-size:13px;align-items:flex-start"><input type="checkbox" ${IF_.mover ? 'checked' : ''} style="width:20px;height:20px;flex:none;accent-color:var(--dark)" onchange="IF_.mover=this.checked"><span>Pasar también este cobro a <b>${esc(mover.nombre)}</b> <span class="muted">(el cliente de esa factura)</span></span></label>` : ''}
+      ${!cobrado(i) ? `<div class="col" style="gap:6px"><span class="eyebrow">${yaCob ? 'Esa factura ya está cobrada: este cobro también' : '¿Está pagado?'}</span><div class="opt" style="flex-wrap:wrap">${[['transferencia', 'Transferencia'], ['efectivo', 'En mano'], ['bizum', 'Bizum'], ['', 'Sin cobrar']].map(([v, l]) => `<button type="button" class="${(IF_.metodo || (yaCob ? (sel.i.metodo || 'transferencia') : '')) === v ? 'on' : ''}" onclick="IF_.metodo='${v}';IF_.set=1;renderEnFactura()">${l}</button>`).join('')}</div></div>` : ''}
+      <span class="muted" style="font-size:12px">Queda marcado como facturado con el nº ${esc(sel.f.numero)} y no se hace otra factura. Si esa factura no incluye este importe, edítala y añade el concepto.</span>
+      <button class="btn dark" id="efBtn" onclick="guardarEnFactura()">Incluir en la factura ${esc(sel.f.numero)}</button>` : ''}
+  </div>`);
+}
+async function guardarEnFactura() {
+  const i = ING().find(x => x.id === IF_.id), sel = facturasHechas().find(x => x.f.numero === IF_.num); if (!i || !sel) return;
+  const btn = $('#efBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  const yaCob = cobrado(sel.i), m = IF_.set ? IF_.metodo : (yaCob ? (sel.i.metodo || 'transferencia') : '');
+  const dest = S.fin.clientes.find(x => sel.f.cliente && sel.f.cliente.nif && x.nif && String(x.nif).trim().toLowerCase() === String(sel.f.cliente.nif).trim().toLowerCase()) || S.fin.clientes.find(x => sel.f.cliente && sel.f.cliente.nombre && (metaOf(x.id).nfiscal || x.nombre) === sel.f.cliente.nombre);
+  const o = Object.assign({}, i, { facturado: 'si', num_factura: sel.f.numero, factura_url: sel.i.factura_url || '', factura_datos: JSON.stringify({ numero: sel.f.numero, ref: sel.i.id }) });
+  if (!cobrado(i) && m) Object.assign(o, { cobrado: 'si', fecha_cobro: sel.i.fecha_cobro || todayStr(), metodo: m });
+  if (IF_.mover && dest) o.cliente_id = dest.id;
+  try { await saveIng(o, 'Incluido en la factura ' + sel.f.numero); render(); sheetVerIngreso(i.id); } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Incluir en la factura ' + sel.f.numero; }
 }
 function sheetFacturaMulti(cid, ids) {
   const I = ids.map(id => ING().find(x => x.id === id)).filter(Boolean); if (!I.length) return;

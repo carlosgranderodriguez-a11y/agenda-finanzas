@@ -50,6 +50,9 @@ En la ficha de un cliente de efectivo, **¿Cuándo te paga? → A final de mes**
 ## Quitar cobros de «Hacer facturas» sin borrarlos
 En «Hacer facturas», cada cliente tiene **No facturar…**: los cobros marcados salen de la lista, siguen contando como ingreso y, si estaban sin cobrar, se apuntan como cobrados en mano, Bizum, transferencia o tarjeta. No llegan al gestor. Se puede deshacer desde el cobro («¿Va a facturación?»).
 
+## Cobro ya incluido en una factura hecha
+En un cobro sin facturar, **«Ya va incluido en una factura hecha…»** deja elegir la factura (p. ej. la mensual de una empresa) y lo enlaza a ella: queda facturado con ese número, sin crear otra factura ni duplicar importes para el gestor; opcionalmente pasa el cobro al cliente de esa factura y lo marca como pagado.
+
 ## Colores de la agenda
 Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendario`) o por palabras de su título (`palabras_clave`, separadas por comas). Puedes añadir categorías nuevas con su color.
 
