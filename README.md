@@ -71,3 +71,6 @@ Tras editar `Code.gs`: Implementar → Gestionar implementaciones → editar →
 
 ## El resumen del cobro coincide con la factura (v70)
 Al generar o editar una factura, si cambias precios o conceptos, el cobro se actualiza con ellos (líneas e importe). Antes el PDF salía bien pero el detalle del cobro conservaba los precios antiguos. Para una factura ya hecha con precios distintos: ábrela, «Editar la factura» → «Guardar cambios». Solo se sincroniza si la factura es de un único cobro.
+
+## Cómo pagó cada cliente (v71)
+En «Efectivo y Bizum», toca el nombre de un cliente en «Sesiones de la agenda»: ves sus cobros del mes y eliges En mano o Bizum para cada uno (se guarda al momento), y si tiene sesiones sin cobrar puedes apuntarlas desde ahí.

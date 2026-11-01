@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v70';
+const VERSION = 'v71';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1043,7 +1043,7 @@ function sesEfectivoHTML(ym) {
   const cards = Object.values(by).sort((a, b) => b.L.filter(sinCobro).length - a.L.filter(sinCobro).length || a.c.nombre.localeCompare(b.c.nombre)).map(g => {
     const ok = g.L.filter(hecha).length, no = g.L.length - ok, p = precioSesion(g.c.id);
     return `<div class="card stack" style="gap:6px;padding:12px 14px">
-      <div class="row between"><b style="font-size:15px">${esc(g.c.nombre)}</b><span class="muted" style="font-size:12px">${ses(g.L.length)} · ${ok} con cobro · ${no} sin cobrar</span></div>
+      <div class="row between"><button style="border:0;background:none;padding:0;text-align:left;font-size:15px;font-weight:800;color:inherit" onclick="sheetPagoCliente('${g.c.id}')">${esc(g.c.nombre)} <span class="muted" style="font-weight:600;font-size:12px">· cómo pagó ›</span></button><span class="muted" style="font-size:12px">${ses(g.L.length)} · ${ok} con cobro · ${no} sin cobrar</span></div>
       ${g.L.map(x => `<button class="row between" style="border:0;background:none;padding:4px 0;text-align:left;width:100%;gap:8px" onclick="abrirSesion('${esc(x.e.id)}','${x.e.start}')"><span style="font-size:13px">${diaCorto(x.d)} · ${hm(x.e.start)}</span><span class="badge ${x.est.k === 'ok' ? 'b-ok' : x.d <= todayStr() ? 'b-bad' : 'b-warn'}">${x.est.k === 'ok' ? 'Cobrada' : x.d <= todayStr() ? 'Sin cobrar' : 'Por cobrar'}</span></button>`).join('')}
       ${no ? `<button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${g.c.id}')">Cobrar sesiones${p ? ' · ' + eur(Math.round(no * p * 100) / 100) : ''}</button>` : ''}
     </div>`; }).join('');
@@ -2620,6 +2620,20 @@ function sinFacturaCli(cid) {
 }
 const usaTramos = cid => porTramos(cid) || !!hastaPagado(cid);
 function precioSesion(cid) { const m = metaOf(cid), c = clienteOf(cid); return num(m.psesion) || num(m.psuelta) || num(c.tarifa) || 0; }
+/* ---- toca un cliente en «Efectivo y Bizum»: cambia en mano ⇄ Bizum de sus cobros del mes o apunta sus sesiones pendientes ---- */
+function sheetPagoCliente(cid) {
+  const c = clienteOf(cid), L = ING().filter(i => i.cliente_id === cid && (i.fecha || '').slice(0, 7) === S.month).sort((a, b) => (a.fecha || '').localeCompare(b.fecha || '')), pend = tramoPend(cid).length;
+  openSheet(`<div class="stack"><h1 style="font-size:22px">${esc(c.nombre)}</h1>
+    <span class="muted" style="font-size:13px">Elige cómo te pagó cada cobro de este mes.</span>
+    ${L.length ? L.map(i => `<div class="card stack" style="gap:8px;padding:12px 14px;background:var(--bg)"><div class="row between"><span style="font-size:13px">${esc(i.concepto || lineasOf(i).map(l => l.detalle).filter(Boolean).join(', ') || 'Cobro')} · ${fmtLong(i.fecha).replace(/ \d{4}$/, '')}</span><b>${eur(num(i.importe))}</b></div>
+      ${cobrado(i) ? `<div class="opt"><button type="button" class="${i.metodo === 'efectivo' ? 'on' : ''}" onclick="setMetodoCobro('${i.id}','efectivo','${cid}')">En mano</button><button type="button" class="${i.metodo === 'bizum' ? 'on' : ''}" onclick="setMetodoCobro('${i.id}','bizum','${cid}')">Bizum</button></div>` : `<span class="badge b-warn" style="align-self:flex-start">Sin cobrar</span>`}</div>`).join('') : '<div class="empty" style="padding:12px">Este mes no hay cobros apuntados.</div>'}
+    ${pend ? `<button class="btn dark" onclick="sheetCobrarTramo('${cid}')">Cobrar ${pend === 1 ? '1 sesión' : pend + ' sesiones'} pendientes (en mano o Bizum)</button>` : ''}
+  </div>`);
+}
+async function setMetodoCobro(id, metodo, cid) {
+  const i = ING().find(x => x.id === id); if (!i || i.metodo === metodo) return;
+  try { await saveIng(Object.assign({}, i, { metodo }), 'Apuntado ' + (metodo === 'bizum' ? 'por Bizum' : 'en mano')); sheetPagoCliente(cid); render(); } catch (e) { toast(e.message); }
+}
 let TR = null;
 function sheetCobrarTramo(cid) {
   const hoy = todayStr(), fin = finDeMes(); TR = { cid, hasta: S.month === hoy.slice(0, 7) ? hoy : fin, p: String(precioSesion(cid) || ''), fact: 'no', imp: null, metodo: ['efectivo', 'bizum'].includes(metodoHabitual(cid)) ? metodoHabitual(cid) : 'efectivo' };
