@@ -43,6 +43,8 @@ Cada cliente es de una clase (Ajustes → Clientes, agrupados por clase): **Empr
 
 Un cliente de efectivo puede pagar **en mano o por Bizum** («¿Cómo te paga?» en su ficha): sus cobros nacen pagados con ese método. Al guardar el cliente, si tiene cobros sin cobrar, la app pregunta si los marca como pagados.
 
+La lista **Efectivo y Bizum** también muestra las **sesiones de la agenda** de esos clientes (los de tipo Efectivo y los que han pagado en mano o por Bizum en los últimos meses), con «cobrada» o «sin cobrar», y un botón **Cobrar sesiones** para apuntar lo que te han pagado hasta un día concreto.
+
 ### Efectivo «a final de mes»
 En la ficha de un cliente de efectivo, **¿Cuándo te paga? → A final de mes**: sus cobros no nacen pagados y sus sesiones de la agenda cuentan como «por cobrar». En la ficha del mes del cliente, **Cobrar sesiones** paga las hechas hasta la fecha que elijas (propone nº de sesiones × precio); las siguientes siguen contando como por cobrar hasta el próximo pago. Cada pago guarda «hasta el día X».
 

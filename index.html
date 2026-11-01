@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v67';
+const VERSION = 'v68';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -506,7 +506,7 @@ async function loadMonthEv(ym, force) {
   S.loadingMonth[ym] = true;
   try { const r = await api('agenda', { from: ym + '-01', to: monthAdd(ym, 1) + '-01' }); S.monthEv[ym] = r.events || []; }
   catch (e) { S.monthEv[ym] = []; }
-  finally { S.loadingMonth[ym] = false; if (route() === 'concepto' || (route() === 'mes' && ym === S.month)) render(); }
+  finally { S.loadingMonth[ym] = false; if (route() === 'concepto' || ((route() === 'mes' || route() === 'efectivo') && ym === S.month)) render(); }
 }
 function sesionesDe(cid, ym) {
   const c = clienteOf(cid); if (!S.monthEv[ym] || !(c.nombre || '').trim()) return null;
@@ -552,7 +552,7 @@ function renderNav(r) {
 function afterRender(r) {
   if (r === 'hoy' || r === 'semana') { loadWeek(mondayOf(S.day)); if (!S.fin) loadFin(); }
   if (r === 'hoy') dragInit();
-  if (r === 'concepto') loadMonthEv(S.month);
+  if (r === 'concepto' || r === 'efectivo') loadMonthEv(S.month);
   if (r === 'mes') { if (S.fin && S.month + '-01' < addDays(todayStr(), -120) && S._bonoLim !== 'todo') { S._bonoLim = 'todo'; S.bonoRange = ''; } loadMonthEv(S.month); loadBonoEv(); }
   if (r === 'bonos' || r === 'clientes') loadBonoEv();
   if (ROUTES[r] === 'fin') loadFin();
@@ -1033,6 +1033,22 @@ function monthStats(ym) {
 }
 /* ---- lista de efectivo: todo lo que te pagan en mano, por mes, y qué parte va a facturación ---- */
 const esEfectivo = i => claseOf(clienteOf(i.cliente_id)) === 'efectivo' || i.metodo === 'efectivo';
+// sesiones de la agenda de los clientes que pagan sin factura, con su estado de pago
+function sesEfectivoHTML(ym) {
+  const L = mesSesiones(ym);
+  if (!L) return `<div class="empty"><span class="spin"></span> Cargando las sesiones de la agenda…</div>`;
+  const act = L.filter(x => x.est.k !== 'excl' && sinFacturaCli(x.c.id)); if (!act.length) return '';
+  const by = {}; act.forEach(x => { (by[x.c.id] = by[x.c.id] || { c: x.c, L: [] }).L.push(x); });
+  const hecha = x => x.est.k === 'ok', sinCobro = x => x.est.k !== 'ok';
+  const cards = Object.values(by).sort((a, b) => b.L.filter(sinCobro).length - a.L.filter(sinCobro).length || a.c.nombre.localeCompare(b.c.nombre)).map(g => {
+    const ok = g.L.filter(hecha).length, no = g.L.length - ok, p = precioSesion(g.c.id);
+    return `<div class="card stack" style="gap:6px;padding:12px 14px">
+      <div class="row between"><b style="font-size:15px">${esc(g.c.nombre)}</b><span class="muted" style="font-size:12px">${ses(g.L.length)} · ${ok} con cobro · ${no} sin cobrar</span></div>
+      ${g.L.map(x => `<button class="row between" style="border:0;background:none;padding:4px 0;text-align:left;width:100%;gap:8px" onclick="abrirSesion('${esc(x.e.id)}','${x.e.start}')"><span style="font-size:13px">${diaCorto(x.d)} · ${hm(x.e.start)}</span><span class="badge ${x.est.k === 'ok' ? 'b-ok' : x.d <= todayStr() ? 'b-bad' : 'b-warn'}">${x.est.k === 'ok' ? 'Cobrada' : x.d <= todayStr() ? 'Sin cobrar' : 'Por cobrar'}</span></button>`).join('')}
+      ${no ? `<button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${g.c.id}')">Cobrar sesiones${p ? ' · ' + eur(Math.round(no * p * 100) / 100) : ''}</button>` : ''}
+    </div>`; }).join('');
+  return `<span class="eyebrow">Sesiones de la agenda</span>${cards}<span class="muted" style="font-size:12px">Salen de tu agenda (eventos con el nombre del cliente). «Cobrar sesiones» apunta lo que te han pagado hasta el día que elijas y las demás siguen por cobrar.</span>`;
+}
 function viewEfectivo() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
   const ym = S.month, md = parseD(ym + '-01');
@@ -1049,6 +1065,8 @@ function viewEfectivo() {
     <div class="hero"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Cobrado sin factura en mano o Bizum</span><span class="big" style="font-size:40px">${eur(sumI(cob))}</span>
       <div class="grid3"><div class="mini"><span>Cobros</span><span>${cob.length}</span></div><div class="mini"><span>A facturación</span><span style="color:#F0B95B">${eur0(sumI(fact))}</span></div><div class="mini"><span>Sin factura</span><span style="color:#7FD1AE">${eur0(sumI(sin))}</span></div></div></div>
     ${deb.length ? `<span class="eyebrow">Sin cobrar</span><div class="card" style="padding:4px 14px">${deb.map(fila).join('')}</div>` : ''}
+    ${sesEfectivoHTML(ym)}
+    <span class="eyebrow">Cobros apuntados</span>
     <div class="card" style="padding:4px 14px">${cob.length ? cob.map(fila).join('') : '<div class="empty" style="padding:14px">No hay cobros en efectivo este mes.</div>'}</div>
     <span class="muted" style="font-size:12px">Los clientes de tipo «Efectivo» se apuntan ya cobrados en mano. Toca la etiqueta de un cobro para mandarlo a facturación o dejarlo sin factura.</span>
   </div>`;
@@ -2579,7 +2597,13 @@ function cliDeEvento(e) {
 // sesiones del mes con su estado de pago: ok (pagada) · debe (hecha y sin pagar) · pend (por pagar / apuntada) · sin (sin cobro asociado) · excl (no cuenta)
 // cobros «hasta una fecha»: lo que te paga un cliente a final de mes cubre sus sesiones hasta ese día; las siguientes quedan por cobrar
 function hastaPagado(cid) { let h = ''; ING().forEach(i => { if (i.cliente_id === cid && cobrado(i)) lineasOf(i).forEach(l => { if (l.hasta && l.hasta > h) h = l.hasta; }); }); return h; }
-function tramoPend(cid) { const L = (mesSesiones(S.month) || []).filter(s => s.c.id === cid && (s.est.k === 'debe' || s.est.k === 'pend')); return L; }
+function tramoPend(cid) { const L = (mesSesiones(S.month) || []).filter(s => s.c.id === cid && (s.est.k === 'debe' || s.est.k === 'pend' || (s.est.k === 'sin' && sinFacturaCli(cid)))); return L; }
+// clientes a los que cobras sin factura: los de tipo Efectivo y los que han pagado en mano o por Bizum en los últimos meses
+function sinFacturaCli(cid) {
+  if (claseOf(clienteOf(cid)) === 'efectivo') return true;
+  const lim = addDays(todayStr(), -100); return ING().some(i => i.cliente_id === cid && cobrado(i) && (i.metodo === 'efectivo' || i.metodo === 'bizum') && cobroFecha(i) >= lim);
+}
+const usaTramos = cid => porTramos(cid) || !!hastaPagado(cid);
 function precioSesion(cid) { const m = metaOf(cid), c = clienteOf(cid); return num(m.psesion) || num(m.psuelta) || num(c.tarifa) || 0; }
 let TR = null;
 function sheetCobrarTramo(cid) {
@@ -2627,7 +2651,7 @@ function mesSesiones(ym) {
     else {
       const ing = ingresoDeEvento(e);
       if (ing) est = cobrado(ing) ? { k: 'ok', txt: 'Pagada' + (num(ing.importe) ? ' · ' + eur(num(ing.importe)) : '') } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' };
-      else if (porTramos(c.id)) {
+      else if (usaTramos(c.id)) {
         const hasta = hastaPagado(c.id), d = e.start.slice(0, 10);
         est = hasta && d <= hasta ? { k: 'ok', txt: 'Pagada en efectivo (hasta el ' + fmtLong(hasta).replace(/ \d{4}$/, '') + ')' } : { k: fut ? 'pend' : 'debe', txt: fut ? 'Por cobrar' : 'Hecha · por cobrar en efectivo' };
       }
@@ -2728,7 +2752,7 @@ function sheetClienteMes(cid) {
   openSheet(`<div class="stack">
     <h1 style="font-size:24px">${esc(c.nombre)}</h1>
     <span class="muted" style="font-size:13px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()} · ${ses(act.length)}${contratoOf(cid) ? ' de ' + contratoOf(cid).n : ''} · ${ok} pagada${ok === 1 ? '' : 's'}</span>
-    ${porTramos(cid) ? (() => { const P = tramoPend(cid), p = precioSesion(cid); return `<div class="card stack" style="gap:6px;background:var(--warnbg)"><b style="color:var(--warn)">${P.length ? ses(P.length) + ' por cobrar' + (p ? ' · ' + eur(Math.round(P.length * p * 100) / 100) : '') : 'Nada por cobrar este mes'}</b><span class="muted" style="font-size:12px">Paga en efectivo a final de mes.${hastaPagado(cid) ? ' Pagado hasta el ' + fmtLong(hastaPagado(cid)) + '.' : ''}</span><button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${cid}')">Cobrar sesiones</button></div>`; })() : ''}
+    ${(porTramos(cid) || hastaPagado(cid)) ? (() => { const P = tramoPend(cid), p = precioSesion(cid); return `<div class="card stack" style="gap:6px;background:var(--warnbg)"><b style="color:var(--warn)">${P.length ? ses(P.length) + ' por cobrar' + (p ? ' · ' + eur(Math.round(P.length * p * 100) / 100) : '') : 'Nada por cobrar este mes'}</b><span class="muted" style="font-size:12px">Paga en efectivo a final de mes.${hastaPagado(cid) ? ' Pagado hasta el ' + fmtLong(hastaPagado(cid)) + '.' : ''}</span><button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${cid}')">Cobrar sesiones</button></div>`; })() : ''}
     ${contratoOf(cid) ? `<span class="muted" style="font-size:13px">Contrato: ${esc(contratoTxt(contratoOf(cid)))} = ${eur(contratoOf(cid).total)} al mes</span>` : ''}
     <div class="card" style="padding:4px 14px;background:var(--bg)">${L.length ? L.map(s => { const e = s.e; return `<button class="li" onclick="abrirSesion('${esc(e.id)}','${e.start}')"><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${diaCorto(s.d)} · ${hm(e.start)}</b><span class="muted" style="font-size:12px">${esc(e.title || '')}</span></span><span class="badge ${mesCls(s.est.k)}" style="text-align:right;white-space:normal;max-width:50%">${esc(s.est.txt)}</span></button>`; }).join('') : '<div class="empty">Sin sesiones este mes.</div>'}</div>
     ${I.length ? `<span class="eyebrow">Cobros apuntados este mes</span><div class="card" style="padding:4px 14px;background:var(--bg)">${I.map(i => `<button class="li" onclick="sheetVerIngreso('${i.id}')"><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${eur(num(i.importe))}</b><span class="muted" style="font-size:12px">${fmtLong(i.fecha)} · ${esc(i.concepto || lineasOf(i).map(l => l.detalle || l.tipo).join(', '))}</span></span><span class="badge ${cobrado(i) ? 'b-ok' : previsto(i) ? 'b-warn' : 'b-bad'}">${cobrado(i) ? 'Cobrado' : previsto(i) ? 'Previsto' : 'Debe'}</span>${facturado(i) ? '<span class="badge b-grey">Facturado</span>' : ''}</button>`).join('')}</div>` : ''}
