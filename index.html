@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v69';
+const VERSION = 'v70';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2363,6 +2363,20 @@ async function previewFactura() {
     openSheet(`<div class="stack"><h1 style="font-size:20px">Vista previa</h1><iframe title="Factura" srcdoc="${esc(r.html)}" style="width:100%;height:65vh;border:1px solid var(--line);border-radius:12px;background:#fff"></iframe></div>`);
   } catch (e) { toast(e.message); }
 }
+// el cobro («resumen») debe decir lo mismo que la factura: si cambiaste precios o conceptos al facturar/editar, se actualizan sus líneas e importe
+// empresa: el cobro guarda la base (sin IVA); particular: lo que paga (IVA incluido, menos IRPF)
+function syncCobroConFactura(i, d, fa) {
+  const emp = clienteOf(i.cliente_id).tipo_fiscal === 'empresa', k = emp ? 1 : 1 + num(d.iva) / 100 - num(d.irpf) / 100;
+  const tipeadas = fa.lineas.filter(x => num(x.importe));
+  const nuevas = d.lineas.map((l, j) => ({ concepto: l.concepto, importe: fa.incluido ? Math.round(num(tipeadas[j] && tipeadas[j].importe) * 100) / 100 : Math.round(l.base * k * 100) / 100, cant: l.cant }));
+  const old0 = lineasOf(i);
+  if (!fa.incluido) nuevas.forEach((n, j) => { const o = old0[j]; if (o && old0.length === nuevas.length && Math.abs(o.importe / k - d.lineas[j].base) < 0.015) n.importe = o.importe; });   // sin cambios reales: no mover céntimos por redondeo
+  const old = old0, tot = Math.round(nuevas.reduce((s, n) => s + n.importe, 0) * 100) / 100;
+  if (old.length === nuevas.length && old.every((o, j) => Math.abs(o.importe - nuevas[j].importe) < 0.02) && Math.abs(num(i.importe) - tot) < 0.02) return false;
+  const out = nuevas.map((n, j) => { const o = old[j] || old[0] || {}; const x = { tipo: o.tipo || '', importe: n.importe, detalle: n.concepto }; if (o.ev) x.ev = o.ev; if (o.hasta) x.hasta = o.hasta; if (n.cant > 0) x.cant = n.cant; return x; });
+  i.lineas = JSON.stringify(out); i.importe = String(tot);
+  return true;
+}
 async function generarFactura(ev) {
   ev.preventDefault();
   if (!FA.lineas.some(l => num(l.importe))) { toast('Pon algún importe'); return; }
@@ -2389,8 +2403,9 @@ async function generarFactura(ev) {
     Object.assign(i, { facturado: 'si', num_factura: r.numero, factura_url: r.url, factura_datos: r.datos }, mover ? { cliente_id: FA.cid } : {});
     // el resto de cobros de esta factura quedan marcados con el mismo número (sin repetir importes para el gestor)
     for (const id of (FA.ingIds || []).slice(1)) { const x = ING().find(y => y.id === id); if (!x) continue; Object.assign(x, { facturado: 'si', num_factura: r.numero, factura_url: r.url || '', factura_datos: JSON.stringify({ numero: r.numero, ref: FA.ingId }) }, mover ? { cliente_id: FA.cid } : {}); api('saveIngreso', { data: x }).catch(() => {}); }
+    const sync = !(FA.ingIds || []).slice(1).length && syncCobroConFactura(i, d, FA);
     if (isDemo()) await api('saveIngreso', { data: i });
-    else if (mover) await api('saveIngreso', { data: i });
+    else if (mover || sync) await api('saveIngreso', { data: i });
     if (!isDemo() && !FA.edit) { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
     LS.set('af_fin_cache', S.fin); render();
     openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} ${FA.edit ? 'actualizada' : 'creada'} ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>

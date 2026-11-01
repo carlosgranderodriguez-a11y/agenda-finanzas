@@ -68,3 +68,6 @@ Hoja **Categorias**: cada evento se colorea por su calendario (columna `calendar
 
 ## Cambios en el backend
 Tras editar `Code.gs`: Implementar → Gestionar implementaciones → editar → *Nueva versión* (así la URL no cambia).
+
+## El resumen del cobro coincide con la factura (v70)
+Al generar o editar una factura, si cambias precios o conceptos, el cobro se actualiza con ellos (líneas e importe). Antes el PDF salía bien pero el detalle del cobro conservaba los precios antiguos. Para una factura ya hecha con precios distintos: ábrela, «Editar la factura» → «Guardar cambios». Solo se sincroniza si la factura es de un único cobro.
