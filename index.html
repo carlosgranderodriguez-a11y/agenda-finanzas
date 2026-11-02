@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v82';
+const VERSION = 'v83';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -824,11 +824,47 @@ function cliChips(area) {
   if (!S.fin) return '<span class="muted" style="font-size:12px">Cargando clientes…</span>';
   const mine = clientsOfArea(area), rest = S.fin.clientes.filter(c => !mine.includes(c));
   const ch = c => `<button type="button" class="chip" data-cid="${c.id}" style="background:var(--bg)" onclick="pickCli(this)">${esc(c.nombre)}</button>`;
-  return mine.map(ch).join('') + (rest.length ? `<details style="width:100%"><summary class="muted" style="font-size:12px;padding:6px 0;cursor:pointer">${mine.length ? 'Otros clientes' : 'Elegir cliente'} (${rest.length})</summary><div class="chips" style="flex-wrap:wrap;margin-top:6px">${rest.map(ch).join('')}</div></details>` : '') || '<span class="muted" style="font-size:12px">Sin clientes</span>';
+  const nuevo = `<button type="button" class="chip" style="background:var(--dark);color:#fff" onclick="nuevoCliEvento()">+ Cliente nuevo</button>`;
+  return nuevo + mine.map(ch).join('') + (rest.length ? `<details style="width:100%"><summary class="muted" style="font-size:12px;padding:6px 0;cursor:pointer">${mine.length ? 'Otros clientes' : 'Elegir cliente'} (${rest.length})</summary><div class="chips" style="flex-wrap:wrap;margin-top:6px">${rest.map(ch).join('')}</div></details>` : '') || '<span class="muted" style="font-size:12px">Sin clientes</span>';
+}
+// alta rápida de un cliente sin salir de la cita
+let NCE = null;
+function nuevoCliEvento() {
+  document.querySelectorAll('#clipick .chip').forEach(x => { x.classList.remove('on'); if (x.dataset.cid) x.style.background = 'var(--bg)'; });
+  NCE = NCE || { nombre: '', alias: '', forma: 'efectivo', precio: '' };
+  const ci = $('#cliInfo'); if (!ci) return;
+  ci.innerHTML = `<div class="stack" style="gap:8px;margin-top:6px;background:var(--bg);border-radius:14px;padding:10px">
+    <b style="font-size:14px">Cliente nuevo</b>
+    <input class="in" id="nceNom" placeholder="Nombre y apellidos" value="${esc(NCE.nombre)}" oninput="NCE.nombre=this.value" style="background:var(--card)" autocomplete="off">
+    <input class="in" id="nceAli" placeholder="Cómo aparece en la agenda (p. ej. Tomas) · opcional" value="${esc(NCE.alias)}" oninput="NCE.alias=this.value" style="background:var(--card)" autocomplete="off">
+    <div class="opt" style="flex-wrap:wrap">${[['efectivo', 'En mano'], ['bizum', 'Bizum'], ['particular', 'Con factura'], ['empresa', 'Empresa']].map(([k, l]) => `<button type="button" class="${NCE.forma === k ? 'on' : ''}" onclick="NCE.forma='${k}';nuevoCliEvento()">${l}</button>`).join('')}</div>
+    <input class="in" id="ncePre" inputmode="decimal" placeholder="Precio por sesión (€)" value="${esc(NCE.precio)}" oninput="NCE.precio=this.value" style="background:var(--card)">
+    <div class="grid2"><button type="button" class="btn" style="background:var(--card);height:44px" onclick="NCE=null;$('#cliInfo').innerHTML=''">Cancelar</button><button type="button" class="btn dark" style="height:44px" id="nceBtn" onclick="crearCliEvento()">Crear y elegir</button></div>
+  </div>`;
+  setTimeout(() => { const n = $('#nceNom'); if (n && !NCE.nombre) n.focus(); }, 50);
+}
+async function crearCliEvento() {
+  const nom = (NCE.nombre || '').trim(); if (!nom) { toast('Pon el nombre'); return; }
+  const ex = S.fin.clientes.find(c => String(c.nombre).trim().toLowerCase() === nom.toLowerCase());
+  let c = ex;
+  const btn = $('#nceBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spin"></span>'; }
+  try {
+    if (!c) {
+      const k = NCE.forma, efe = k === 'efectivo' || k === 'bizum';
+      c = await api('saveCliente', { data: { id: uid(), nombre: nom, nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '', factura: efe ? 'no' : 'si', tipo_fiscal: k === 'empresa' ? 'empresa' : 'particular' } });
+      S.fin.clientes.push(c);
+      const area = ((document.querySelector('#catpick .chip.on') || {}).dataset || {}).cat || '';
+      const p = String(num(NCE.precio) || '');
+      await saveMeta(c.id, { area, alias: (NCE.alias || '').trim(), psuelta: p, psesion: p, metodo: k === 'bizum' ? 'bizum' : '' });
+      toast('Cliente ' + nom + ' creado');
+    }
+    NCE = null;
+    const cp = $('#clipick'); if (cp) { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.dataset.cid = c.id; b.style.background = 'var(--bg)'; b.textContent = c.nombre; b.onclick = () => pickCli(b); const d = cp.querySelector('details'); if (d) cp.insertBefore(b, d); else cp.appendChild(b); pickCli(b); }
+  } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = 'Crear y elegir'; } }
 }
 function pickCli(b) {
   const on = b.classList.contains('on');
-  document.querySelectorAll('#clipick .chip').forEach(x => { x.classList.remove('on'); x.style.background = 'var(--bg)'; });
+  document.querySelectorAll('#clipick .chip[data-cid]').forEach(x => { x.classList.remove('on'); x.style.background = 'var(--bg)'; });
   if (!on) {
     b.classList.add('on'); b.style.background = '';
     const a = metaOf(b.dataset.cid).area;

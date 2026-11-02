@@ -103,3 +103,6 @@ Si una cita nueva no se puede guardar al momento (sin cobertura o Google tarda),
 - sigue visible y marcada aunque cierres la app;
 - en su ficha puedes «Reintentar» o «Quitar» (ya no se guardará);
 - si creas otra cita del mismo cliente ese día mientras la primera está pendiente, pregunta si sustituirla.
+
+## Cliente nuevo desde la cita (v83)
+En «Nuevo evento», el primer botón de Cliente es «+ Cliente nuevo»: nombre, cómo aparece en la agenda, cómo paga (En mano · Bizum · Con factura · Empresa) y precio por sesión. «Crear y elegir» lo da de alta y lo deja elegido en la cita, sin perder lo que ya habías rellenado.
