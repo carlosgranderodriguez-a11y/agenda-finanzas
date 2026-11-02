@@ -11,8 +11,9 @@ const APP_URL = 'https://carlosgranderodriguez-a11y.github.io/agenda-finanzas/'
 const C = {
   bg: new Color('#F4F2ED'), dark: new Color('#17181C'), ink: new Color('#17181C'),
   muted: new Color('#5C5F66'), dmuted: new Color('#A9ACB4'), now: new Color('#D9412B'),
-  green: new Color('#7FD1AE'), amber: new Color('#F0C866'), track: new Color('#ECE9E3')
+  green: new Color('#7FD1AE'), amber: new Color('#F0C866'), track: new Color('#ECE9E3'), sala: new Color('#C9C4BA')
 }
+const hm2 = t => +String(t).slice(0, 2) + (+String(t).slice(3, 5) || 0) / 60
 // color principal del área: el fondo si lo eligió el usuario (no es un pastel muy claro); si no, el color de texto
 function lum(h) { const n = parseInt(String(h || '').replace('#', ''), 16); return isNaN(n) ? 0 : (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255 }
 function mix(a, b, t) { const p = h => { const n = parseInt(String(h || '').replace('#', ''), 16); return [n >> 16, (n >> 8) & 255, n & 255] }, x = p(a), y = p(b); return '#' + x.map((v, i) => Math.round(v * (1 - t) + y[i] * t).toString(16).padStart(2, '0')).join('') }
@@ -32,14 +33,36 @@ function readCache() {
     return d
   } catch (e) { return null }
 }
-async function fetchData(timeout) {
-  const url = API + '?action=widget&token=' + encodeURIComponent(TOKEN)
-  const r = new Request(url); r.timeoutInterval = timeout || 20
+async function getJSON(action, timeout) {
+  const r = new Request(API + '?action=' + action + '&token=' + encodeURIComponent(TOKEN)); r.timeoutInterval = timeout || 20
   const txt = await r.loadString()
   let j; try { j = JSON.parse(txt) } catch (e) { throw new Error('Google no ha devuelto datos (¿está desplegado el Apps Script como «Cualquier usuario»?)') }
   if (!j.ok) throw new Error(j.error)
-  j.data._savedAt = new Date().toISOString(); FM.writeString(CACHE, JSON.stringify(j.data))
   return j.data
+}
+async function fetchData(timeout) {
+  // agenda de la semana (widget) + finanzas: así el dinero y las horas de sala ocupada salen igual que en la app
+  const [d, fin] = await Promise.all([getJSON('widget', timeout), getJSON('finanzas', timeout).catch(() => null)])
+  if (fin) enriquecer(d, fin)
+  d._savedAt = new Date().toISOString(); FM.writeString(CACHE, JSON.stringify(d))
+  return d
+}
+// mismo cálculo que la app: «cobrado este mes» = cobros de este mes ya pagados; «te deben» = lo no cobrado con fecha ya pasada
+function enriquecer(d, fin) {
+  const hoy = d.now.slice(0, 10), ym = hoy.slice(0, 7), I = fin.ingresos || []
+  const cob = I.filter(i => i.cobrado === 'si' && String(i.fecha || '').slice(0, 7) === ym)
+  const deb = I.filter(i => i.cobrado !== 'si' && String(i.fecha || '') <= hoy)
+  const n = v => { const x = parseFloat(String(v || '0').replace(',', '.')); return isNaN(x) ? 0 : x }
+  d.mes = { ingresos: cob.reduce((a, i) => a + n(i.importe), 0), pendiente: deb.reduce((a, i) => a + n(i.importe), 0), cobrado: true }
+  let B = []; try { B = JSON.parse((fin.config || {}).bloqueos || '[]') || [] } catch (e) {}
+  const mon = new Date(hoy + 'T12:00:00'); mon.setDate(mon.getDate() - (mon.getDay() + 6) % 7)
+  const ds = k => { const x = new Date(mon); x.setDate(x.getDate() + k); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0') }
+  d.salas = [0, 1, 2, 3, 4, 5, 6].map(k => { const di = ds(k); return B.filter(b => b.ini && b.fin && (b.fecha ? b.fecha === di : (b.dias || []).includes(k) && (!b.desde || di >= b.desde) && (!b.hasta || di <= b.hasta))).map(b => ({ s: b.ini, e: b.fin, n: b.nombre || 'Sala ocupada' })) })
+  // color por cliente (como en la app): si un evento sin área lleva el nombre de un cliente con área, toma ese color
+  let M = {}; try { M = JSON.parse((fin.config || {}).clientes_meta || '{}') || {} } catch (e) {}
+  const R = (fin.clientes || []).map(c => ({ n: String((M[c.id] && M[c.id].alias) || c.nombre || '').trim().toLowerCase(), a: M[c.id] && M[c.id].area })).filter(r => r.n.length >= 3 && r.a && (d.categorias || []).some(k => k.id === r.a)).sort((a, b) => b.n.length - a.n.length)
+  const pon = e => { if (e.cat && e.cat !== 'otro') return; const t = String(e.title || '').toLowerCase(), r = R.find(r => t.includes(r.n)); if (r) e.cat = r.a }
+  ;(d.today || []).forEach(pon); if (d.next) pon(d.next)
 }
 // maxAge: minutos que damos por buenos los datos guardados sin volver a pedirlos
 async function getData(timeout, maxAge) {
@@ -78,6 +101,8 @@ function dayBar(d, events, w, h) {
   const ctx = new DrawContext(); ctx.size = new Size(w, h); ctx.opaque = false; ctx.respectScreenScale = true
   const H0 = 7, H1 = 21, sx = x => (x - H0) / (H1 - H0) * w
   const p = new Path(); p.addRoundedRect(new Rect(0, 0, w, h), 7, 7); ctx.addPath(p); ctx.setFillColor(C.track); ctx.fillPath()
+  const ti = (new Date(d.now).getDay() + 6) % 7
+  ;((d.salas || [])[ti] || []).forEach(b => { const a = Math.max(H0, hm2(b.s)), z = Math.min(H1, hm2(b.e)); if (z > a) { ctx.setFillColor(C.sala); ctx.fillRect(new Rect(sx(a), 0, sx(z) - sx(a), h)) } })
   events.forEach(e => {
     const a = Math.max(H0, hrs(e.start)), b = Math.min(H1, hrs(e.end) || 24)
     if (b <= a) return
@@ -97,6 +122,7 @@ function weekBars(d, w, rowH) {
     const y = i * (rowH + 6)
     ctx.setTextColor(i === todayIdx ? C.now : C.ink); ctx.drawText(DL[i], new Point(0, y + rowH / 2 - 7))
     const bg = new Path(); bg.addRoundedRect(new Rect(lab, y, w - lab, rowH), 4, 4); ctx.addPath(bg); ctx.setFillColor(C.track); ctx.fillPath()
+    ;((d.salas || [])[i] || []).forEach(b => { const a = Math.max(H0, hm2(b.s)), z = Math.min(H1, hm2(b.e)); if (z > a) { ctx.setFillColor(C.sala); ctx.fillRect(new Rect(sx(a), y, sx(z) - sx(a), rowH)) } })
     evs.forEach(e => {
       const [ah, am] = e.s.split(':').map(Number), [bh, bm] = e.e.split(':').map(Number)
       const a = Math.max(H0, ah + am / 60), b = Math.min(H1, (bh + bm / 60) || 24)
@@ -131,7 +157,7 @@ function smallFin(d, w) {
   txt(w, MES[m].toUpperCase(), 10, C.dmuted, 'bold')
   w.addSpacer()
   txt(w, eur(d.mes.ingresos), 26, Color.white(), 'heavy')
-  txt(w, 'ingresos del mes', 11, C.dmuted)
+  txt(w, d.mes.cobrado ? 'cobrado este mes' : 'ingresos del mes', 11, C.dmuted)
   w.addSpacer()
   txt(w, 'te deben ' + eur(d.mes.pendiente), 11, C.amber, 'bold')
 }
@@ -183,14 +209,14 @@ function inAppHTML(d) {
     return `<div class="ev" style="background:${c.bg};color:${c.fg};opacity:${past ? .55 : 1};${cur ? 'outline:2px solid ' + c.fg : ''}">
       <div class="k">${esc(e.cat === 'otro' ? 'Sin área' : c.nombre)} · ${e.start.slice(11, 16)}–${e.end.slice(11, 16)}${cur ? ' · AHORA' : ''}</div>
       <div class="t">${esc(e.title)}</div>${e.location ? `<div class="s">${esc(e.location)}</div>` : ''}</div>`
-  }).join('') || '<div class="empty">Nada más en la agenda de hoy</div>'
+  }).join('') + (((d.salas || [])[(now.getDay() + 6) % 7]) || []).map(b => `<div class="ev" style="background:repeating-linear-gradient(135deg,#E6E3DC 0 8px,#EFECE6 8px 16px);color:#6B6E75"><div class="k">🚫 ${esc(b.n)} · ${b.s}–${b.e}</div></div>`).join('') || '<div class="empty">Nada más en la agenda de hoy</div>'
   const H0 = 7, H1 = 22, pct = h => ((Math.max(H0, Math.min(H1, h)) - H0) / (H1 - H0) * 100).toFixed(2)
   const todayIdx = (now.getDay() + 6) % 7
   const week = d.days.map((evs, i) => `<div class="wr"><b style="color:${i === todayIdx ? '#D9412B' : '#17181C'}">${DL[i]}</b><div class="tr">${evs.map(e => {
     const [ah, am] = e.s.split(':').map(Number), [bh, bm] = e.e.split(':').map(Number)
     const a = ah + am / 60, b = (bh + bm / 60) || 24
     return `<i style="left:${pct(a)}%;width:${Math.max(pct(b) - pct(a), 1)}%;background:${main(cat(d, e.cat))}"></i>`
-  }).join('')}</div></div>`).join('')
+  }).join('')}${((d.salas || [])[i] || []).map(b => `<i style="left:${pct(hm2(b.s))}%;width:${Math.max(pct(hm2(b.e)) - pct(hm2(b.s)), 1)}%;background:#C9C4BA"></i>`).join('')}</div></div>`).join('')
   const wh = d.weekHours || {}
   const leg = Object.keys(wh).map(k => `<span><i style="background:${main(cat(d, k))}"></i>${esc(cat(d, k).nombre)} <b>${hstr(wh[k])} h</b></span>`).join('')
   const work = d.today.filter(e => e.cat !== 'per' && e.cat !== 'otro').reduce((s, e) => s + (hrs(e.end) - hrs(e.start)), 0)
@@ -211,7 +237,7 @@ function inAppHTML(d) {
   <div class="row"><div><div class="e">${DIAS[now.getDay()]} · hoy</div><h1>${now.getDate()} ${MESL[now.getMonth()]}</h1></div><div style="text-align:right"><div style="font-size:22px;font-weight:800">${hstr(work)} h</div><div class="m" style="color:#5C5F66">${d.today.length} bloques</div></div></div>
   <div>${ev}</div>
   <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
-  <div class="card fin" ${true ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${' · toca para ver'}</div><div class="big" data-v="${eurVis(d.mes.ingresos || 0)}">•••• €</div><div class="m">ingresos del mes</div>
+  <div class="card fin" ${true ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${' · toca para ver'}</div><div class="big" data-v="${eurVis(d.mes.ingresos || 0)}">•••• €</div><div class="m">${d.mes.cobrado ? 'cobrado este mes' : 'ingresos del mes'}</div>
     <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben <span data-v="${eurVis(d.mes.pendiente || 0)}">•••• €</span></div></div>
   <a class="btn" href="${APP_URL}">Abrir la app completa</a>
   </body></html>`
@@ -289,7 +315,7 @@ async function run() {
     if (fam === 'small') param.includes('finanzas') ? smallFin(d, w) : small(d, w)
     else if (fam === 'medium') medium(d, w)
     else large(d, w)
-    if (d._offline) { w.addSpacer(2); txt(w, 'sin conexión', 8, C.muted) }
+    w.addSpacer(2); txt(w, (d._offline ? 'sin conexión · ' : '') + 'act. ' + (d._saved || new Date(d._savedAt || Date.now()).toTimeString().slice(0, 5)), 8, C.muted)
   } catch (e) {
     w.backgroundColor = C.bg
     txt(w, 'Agenda', 14, C.ink, 'heavy'); w.addSpacer(4)
