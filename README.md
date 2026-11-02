@@ -96,3 +96,4 @@ Todas las pantallas (agenda, resumen de sesiones, Efectivo y Bizum, ficha, bonos
 Lo que no cubre nada sale «Sin pagar» (ya pasó) o «Por cobrar» (futura). Antes la agenda ignoraba los cobros «hasta una fecha» y decía que Alvaro tenía sesiones sin pagar.
 
 Para cobrar siempre se usa la misma hoja («Cobrar sesiones»): nº de sesiones, cómo pagó (En mano · Bizum · Transferencia · Aún no) e importe. Desde Efectivo y Bizum o la ficha del mes, las sesiones sin pagar ya vienen contadas. Avisa si apuntas un cobro igual a otro ya apuntado.
+Al crear un evento con cliente, «¿Te paga ahora sesiones?» (No · En mano · Bizum · Transferencia · Me debe) apunta el pago con la misma regla, empezando ese día. El aviso del cliente muestra «Pagado hasta el …» en vez de «Bono agotado» cuando paga por fechas (v81).

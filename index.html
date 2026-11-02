@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v80';
+const VERSION = 'v81';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -771,12 +771,12 @@ function sheetEvento(atH) {
       <div class="opt" id="repOpt"><button type="button" class="on" data-v="0" onclick="pickRep(this)">No</button><button type="button" data-v="1" onclick="pickRep(this)">Cada semana</button><button type="button" data-v="2" onclick="pickRep(this)">Cada 2 semanas</button></div>
       <div class="grid2" id="repHasta" style="display:none;align-items:end"><label class="f">Hasta<input class="in" type="date" name="hasta" value="${addDays(d, 90)}"></label><label class="row" style="gap:8px;font-size:13px;height:46px"><input type="checkbox" name="sinfin" style="width:20px;height:20px;accent-color:var(--dark)" onchange="this.form.hasta.disabled=this.checked"> Sin fecha de fin</label></div>
     </div>
-    <div class="col" style="gap:6px"><span class="eyebrow">Vender bono al cliente</span>
-      <div class="opt" id="bonoOpt"><button type="button" class="on" data-v="0" onclick="pickBono(this)">No</button><button type="button" data-v="si" onclick="pickBono(this)">Pagado</button><button type="button" data-v="no" onclick="pickBono(this)">Pendiente de pago</button></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Te paga ahora sesiones? (opcional)</span>
+      <div class="opt" id="bonoOpt" style="flex-wrap:wrap"><button type="button" class="on" data-v="0" onclick="pickBono(this)">No</button><button type="button" data-v="efectivo" onclick="pickBono(this)">En mano</button><button type="button" data-v="bizum" onclick="pickBono(this)">Bizum</button><button type="button" data-v="transferencia" onclick="pickBono(this)">Transferencia</button><button type="button" data-v="no" onclick="pickBono(this)">Me debe</button></div>
       <div class="col" id="bonoMas" style="display:none;gap:8px">
-        <div class="grid2"><label class="f">Sesiones<input class="in" name="bn" inputmode="numeric" value="4"></label><label class="f">Precio (€)<input class="in" name="bp" inputmode="decimal" style="font-weight:800"></label></div>
+        <div class="grid2"><label class="f">¿Cuántas sesiones?<input class="in" name="bn" inputmode="numeric" value="4" oninput="this.form.bp.value=vtPrecio((document.querySelector('#clipick .chip.on')||{dataset:{}}).dataset.cid,this.value)||this.form.bp.value"></label><label class="f">Importe (€)<input class="in" name="bp" inputmode="decimal" style="font-weight:800"></label></div>
         <div class="chips" id="bonoMet" style="flex-wrap:wrap">${METODOS.map(([m, l]) => `<button type="button" class="chip" data-m="${m}" style="background:var(--bg)" onclick="pickBonoMet(this)">${l}</button>`).join('')}</div>
-        <span class="muted" style="font-size:12px">Elige el cliente arriba. Esta hora contará como la primera sesión del bono.</span>
+        <span class="muted" style="font-size:12px">Elige el cliente arriba. Cubre esta sesión y las siguientes hasta completar el número.</span>
       </div>
     </div>
     <button class="btn dark" type="submit">Guardar en Google Calendar</button>
@@ -788,23 +788,26 @@ function cliEstadoHTML(cid) {
   const st = estadoBono(cid), deb = sumI(ING().filter(i => i.cliente_id === cid && debe(i)));
   const p = [];
   if (st) {
+    const h = pagosDe(cid).hasta.slice(-1)[0];
     if (st.sinBonoPast) p.push(`<b style="color:var(--bad)">${st.sinBonoPast} ${st.sinBonoPast === 1 ? 'sesión hecha' : 'sesiones hechas'} sin pagar</b>`);
-    p.push(st.quedan ? `Bono: le quedan <b>${st.quedan}</b>` : '<b style="color:var(--warn)">Bono agotado</b>');
-    if (st.sinBonoFut) p.push(`${st.sinBonoFut} reservada${st.sinBonoFut === 1 ? '' : 's'} sin bono`);
-  } else p.push('<span class="muted">Sin bonos apuntados</span>');
+    if (st.quedan) p.push(`Bono: le quedan <b>${st.quedan}</b>`);
+    else if (h) p.push(`Pagado hasta el <b>${esc(fmtLong(h.h).replace(/ \d{4}$/, ''))}</b>`);
+    else p.push('<b style="color:var(--warn)">Bono agotado</b>');
+    if (st.sinBonoFut) p.push(`${st.sinBonoFut} por cobrar`);
+  } else p.push('<span class="muted">Sin cobros de sesiones apuntados</span>');
   if (deb) p.push(`<b style="color:var(--warn)">Te debe ${eur(deb)}</b>`);
-  const bad = st && (st.sinBonoPast || !st.quedan);
-  return `<div style="margin-top:6px;border-radius:12px;padding:8px 10px;font-size:13px;background:${bad ? 'var(--badbg)' : 'var(--bg)'}">${p.join(' · ')}${bad ? '<br><span class="muted" style="font-size:12px">Puedes venderle un bono abajo («Vender bono al cliente»).</span>' : ''}</div>`;
+  const bad = st && st.sinBonoPast;
+  return `<div style="margin-top:6px;border-radius:12px;padding:8px 10px;font-size:13px;background:${bad ? 'var(--badbg)' : 'var(--bg)'}">${p.join(' · ')}${bad ? '<br><span class="muted" style="font-size:12px">Cóbraselas con «Cobrar sesiones».</span>' : ''}</div>`;
 }
 function pickBono(b) {
   document.querySelectorAll('#bonoOpt button').forEach(x => x.classList.toggle('on', x === b));
-  const v = b.dataset.v; $('#bonoMas').style.display = v === '0' ? 'none' : 'flex'; $('#bonoMet').style.display = v === 'si' ? 'flex' : 'none';
+  const v = b.dataset.v; $('#bonoMas').style.display = v === '0' ? 'none' : 'flex'; $('#bonoMet').style.display = 'none';
   if (v !== '0') bonoPrefill();
 }
 function pickBonoMet(b) { document.querySelectorAll('#bonoMet .chip').forEach(x => { const on = x === b; x.classList.toggle('on', on); x.style.background = on ? '' : 'var(--bg)'; }); }
 function bonoPrefill() {
   const cb = document.querySelector('#clipick .chip.on'), f = document.querySelector('#sheet form'); if (!cb || !f || !f.bp) return;
-  const m = metaOf(cb.dataset.cid); f.bn.value = num(m.nbono) || 4; f.bp.value = num(m.pbono) || '';
+  const m = metaOf(cb.dataset.cid); f.bn.value = num(m.nbono) || 4; f.bp.value = vtPrecio(cb.dataset.cid, f.bn.value) || '';
   const hab = metodoHabitual(cb.dataset.cid), mb = hab && document.querySelector('#bonoMet .chip[data-m="' + hab + '"]'); if (mb) pickBonoMet(mb);
 }
 function cliChips(area) {
@@ -828,9 +831,9 @@ function pickCli(b) {
 async function venderBonoEvento(b) {
   try {
     const m0 = metaOf(b.cid), tipo = m0.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]);
-    const det = b.n === 1 ? 'Sesión suelta' : 'Bono ' + b.n + ' sesiones', hoy = todayStr();
-    await saveIng({ id: uid(), fecha: hoy, cliente_id: b.cid, concepto: det, importe: String(b.imp), cobrado: b.cobrado, fecha_cobro: b.cobrado === 'si' ? hoy : '', metodo: b.cobrado === 'si' ? b.met : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: b.imp, detalle: det, bono: b.n }]) }, det + (b.cobrado === 'si' ? ' apuntado como pagado' : ' apuntado: pendiente de pago'));
-    const nm = Object.assign({}, m0, b.n === 1 ? { psuelta: String(b.imp) } : { nbono: String(b.n), pbono: String(b.imp) }, m0.tipo ? {} : { tipo });
+    const det = b.n === 1 ? 'Sesión suelta' : (b.n === (num(m0.nbono) || 4) ? 'Bono ' + b.n + ' sesiones' : b.n + ' sesiones'), hoy = todayStr();
+    await saveIng({ id: uid(), fecha: b.desde || hoy, cliente_id: b.cid, concepto: det, importe: String(b.imp), cobrado: b.cobrado, fecha_cobro: b.cobrado === 'si' ? hoy : '', metodo: b.cobrado === 'si' ? b.met : '', facturado: b.cobrado === 'si' && (b.met === 'efectivo' || b.met === 'bizum') ? 'nunca' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: b.imp, detalle: det, bono: b.n, desde: b.desde || hoy }]) }, det + (b.cobrado === 'si' ? ' apuntado como pagado' : ' apuntado: pendiente de pago'));
+    const nm = Object.assign({}, m0, b.n === 1 ? { psuelta: String(b.imp) } : (num(m0.nbono) && num(m0.nbono) !== b.n ? {} : { nbono: String(b.n), pbono: String(b.imp) }), m0.tipo ? {} : { tipo });
     if (JSON.stringify(m0) !== JSON.stringify(nm)) await saveMeta(b.cid, nm);
     render();
   } catch (e) { toast('El evento se ha creado, pero el bono no se pudo apuntar: ' + e.message); }
@@ -930,11 +933,10 @@ async function crearEvento(ev) {
   if (f.end.value <= f.start.value) { toast('La hora de fin debe ser posterior'); return; }
   const bv = ((document.querySelector('#bonoOpt button.on') || {}).dataset || {}).v || '0'; let bono = null;
   if (bv !== '0') {
-    if (!cli) { toast('Para vender el bono, elige el cliente'); return; }
-    const n = Math.max(1, Math.round(num(f.bn.value))), imp = num(f.bp.value), met = ((document.querySelector('#bonoMet .chip.on') || {}).dataset || {}).m || '';
-    if (!imp) { toast('Pon el precio del bono'); return; }
-    if (bv === 'si' && !met) { toast('Elige cómo te ha pagado'); return; }
-    bono = { n, imp, met, cobrado: bv, cid: cli.id };
+    if (!cli) { toast('Para apuntar el pago, elige el cliente'); return; }
+    const n = Math.max(1, Math.round(num(f.bn.value))), imp = num(f.bp.value), met = bv === 'no' ? '' : bv;
+    if (!imp) { toast('Pon el importe'); return; }
+    bono = { n, imp, met, cobrado: bv === 'no' ? 'no' : 'si', cid: cli.id, desde: date };
   }
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   try {
