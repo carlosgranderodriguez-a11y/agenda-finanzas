@@ -86,6 +86,8 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .tl .hr{position:absolute;left:46px;right:0;border-top:1px solid var(--line)}
 .tl .hl{position:absolute;left:0;width:40px;font-size:11px;color:var(--muted);transform:translateY(-7px)}
 .tl .lane{position:absolute;left:46px;right:0;top:0;bottom:0}
+.sala{position:absolute;left:0;right:0;border:0;border-radius:12px;background:repeating-linear-gradient(135deg,#E6E3DC 0 8px,#EFECE6 8px 16px);color:#6B6E75;font-size:12px;font-weight:700;text-align:left;padding:6px 10px;display:flex;align-items:flex-start;overflow:hidden}
+.wg .sala{border-radius:6px;padding:0;font-size:0}
 .ev.drag{z-index:5;box-shadow:0 10px 24px #0003;transform:scale(1.03);opacity:.95}
 .ev.drag::after{content:attr(data-lbl);position:absolute;right:8px;top:6px;background:var(--ink);color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:2px 7px}
 .ev{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:pan-y}
@@ -180,7 +182,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v83';
+const VERSION = 'v84';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -604,6 +606,52 @@ function weekEvents(mon) {
 }
 function dayEvents(d) { return weekEvents(mondayOf(d)).filter(e => e.start.slice(0, 10) === d); }
 
+/* ---- horas de sala ocupada: no es trabajo ni se cobra; se ven sombreadas y no cuentan como hueco libre ---- */
+function bloqueos() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.bloqueos) || '[]') || []; } catch (e) { return []; } }
+const hhm = t => +String(t).slice(0, 2) + (+String(t).slice(3, 5) || 0) / 60;
+function bloqueosDe(d) { const dow = (parseD(d).getDay() + 6) % 7; return bloqueos().filter(b => b.ini && b.fin && (b.fecha ? b.fecha === d : (b.dias || []).includes(dow) && (!b.desde || d >= b.desde) && (!b.hasta || d <= b.hasta))); }
+let BQ = null;
+function sheetBloqueo(id, fecha, ini) {
+  const b = id ? bloqueos().find(x => x.id === id) : null;
+  const d0 = fecha || S.day || todayStr(), h = ini != null ? pad(Math.floor(ini)) + ':' + pad(Math.round((ini % 1) * 60)) : '17:00';
+  BQ = b ? JSON.parse(JSON.stringify(b)) : { id: '', nombre: 'Sala ocupada', modo: 'semana', dias: [(parseD(d0).getDay() + 6) % 7], fecha: d0, ini: h, fin: plus1h(h), desde: d0, hasta: '' };
+  if (b) BQ.modo = b.fecha ? 'dia' : 'semana';
+  if (!BQ.fecha) BQ.fecha = d0;
+  renderBloqueo();
+}
+function renderBloqueo() {
+  openSheet(`<form class="stack" onsubmit="guardarBloqueo(event)">
+    <h1 style="font-size:24px">${BQ.id ? 'Sala ocupada' : 'Nueva hora de sala ocupada'}</h1>
+    <span class="muted" style="font-size:13px">Horas en las que la sala tiene otras actividades: no es trabajo tuyo ni se cobra. Se ven sombreadas en la agenda y no cuentan como hueco libre.</span>
+    <label class="f">Nombre<input class="in" value="${esc(BQ.nombre)}" oninput="BQ.nombre=this.value" placeholder="Ej. Sala ocupada · clases de yoga"></label>
+    <div class="opt"><button type="button" class="${BQ.modo === 'semana' ? 'on' : ''}" onclick="BQ.modo='semana';renderBloqueo()">Cada semana</button><button type="button" class="${BQ.modo === 'dia' ? 'on' : ''}" onclick="BQ.modo='dia';renderBloqueo()">Solo un día</button></div>
+    ${BQ.modo === 'semana' ? `<div class="chips" style="flex-wrap:wrap">${DL.map((l, i) => `<button type="button" class="chip ${BQ.dias.includes(i) ? 'on' : ''}" style="${BQ.dias.includes(i) ? '' : 'background:var(--bg)'};min-width:44px;justify-content:center" onclick="BQ.dias=BQ.dias.includes(${i})?BQ.dias.filter(x=>x!==${i}):BQ.dias.concat(${i});renderBloqueo()">${l}</button>`).join('')}</div>
+      <div class="grid2"><label class="f">Desde el día<input class="in" type="date" value="${BQ.desde || ''}" onchange="BQ.desde=this.value"></label><label class="f">Hasta (opcional)<input class="in" type="date" value="${BQ.hasta || ''}" onchange="BQ.hasta=this.value"></label></div>`
+      : `<label class="f">Día<input class="in" type="date" value="${BQ.fecha}" onchange="BQ.fecha=this.value"></label>`}
+    <div class="grid2"><label class="f">De<input class="in" type="time" value="${BQ.ini}" onchange="BQ.ini=this.value"></label><label class="f">A<input class="in" type="time" value="${BQ.fin}" onchange="BQ.fin=this.value"></label></div>
+    <button class="btn dark" type="submit" id="bqBtn">Guardar</button>
+    ${BQ.id ? `<button class="btn danger" type="button" onclick="borrarBloqueo('${BQ.id}')">Borrar</button>` : ''}
+  </form>`);
+}
+async function saveBloqueos(L, msg) {
+  const v = JSON.stringify(L);
+  await api('saveConfig', { data: { bloqueos: v } });
+  S.fin.config = Object.assign(S.fin.config || {}, { bloqueos: v }); LS.set('af_fin_cache', S.fin); toast(msg); closeSheet(); render();
+}
+async function guardarBloqueo(ev) {
+  ev.preventDefault();
+  if (!S.fin) { toast('Espera a que carguen tus datos'); return; }
+  if (!BQ.ini || !BQ.fin || BQ.fin <= BQ.ini) { toast('La hora de fin debe ser posterior'); return; }
+  if (BQ.modo === 'semana' && !BQ.dias.length) { toast('Elige algún día de la semana'); return; }
+  const o = { id: BQ.id || uid(), nombre: (BQ.nombre || '').trim() || 'Sala ocupada', ini: BQ.ini, fin: BQ.fin };
+  if (BQ.modo === 'dia') o.fecha = BQ.fecha; else { o.dias = BQ.dias.slice().sort(); if (BQ.desde) o.desde = BQ.desde; if (BQ.hasta) o.hasta = BQ.hasta; }
+  try { await saveBloqueos(bloqueos().filter(x => x.id !== o.id).concat(o), 'Sala ocupada guardada'); } catch (e) { toast(e.message); }
+}
+async function borrarBloqueo(id) {
+  if (!await ask('¿Borrar esta hora de sala ocupada?', 'Borrar')) return;
+  try { await saveBloqueos(bloqueos().filter(x => x.id !== id), 'Borrada'); } catch (e) { toast(e.message); }
+}
+const bloqueoTxt = b => (b.fecha ? fmtLong(b.fecha) : b.dias.map(i => DL[i]).join(' · ')) + ' · ' + b.ini + '–' + b.fin;
 function viewHoy() {
   const d = S.day, mon = mondayOf(d), dd = parseD(d);
   const evs = dayEvents(d);
@@ -649,17 +697,20 @@ function timeline(d, evs) {
   const items = layoutCols(evs);
   let h0 = 7, h1 = 22;
   items.forEach(it => { h0 = Math.min(h0, Math.floor(it.s)); h1 = Math.max(h1, Math.min(24, Math.ceil(it.en))); });
+  const BL = bloqueosDe(d).map(b => ({ b, s: hhm(b.ini), en: hhm(b.fin) }));
+  BL.forEach(x => { h0 = Math.min(h0, Math.floor(x.s)); h1 = Math.max(h1, Math.min(24, Math.ceil(x.en))); });
   const H = (h1 - h0) * PX;
   let html = `<div class="tl" style="height:${H + 8}px" onclick="tapTimeline(event, ${h0})">`;
   for (let h = h0; h <= h1; h++) html += `<div class="hr" style="top:${(h - h0) * PX}px"></div>` + (h < 24 ? `<span class="hl" style="top:${(h - h0) * PX}px">${pad(h)}:00</span>` : '');
   // huecos libres >= 1.5 h entre 8 y 21
-  const busy = items.map(it => [it.s, it.en]).sort((a, b) => a[0] - b[0]);
+  const busy = items.map(it => [it.s, it.en]).concat(BL.map(x => [x.s, x.en])).sort((a, b) => a[0] - b[0]);
   let cur = Math.max(h0, 8);
   const gaps = [];
   busy.forEach(([s, e]) => { if (s - cur >= 1.5 && cur < 21) gaps.push([cur, Math.min(s, 21)]); cur = Math.max(cur, e); });
   if (21 - cur >= 1.5) gaps.push([cur, 21]);
   gaps.forEach(([s, e]) => { if (e - s >= 1.5) html += `<div class="gap" style="top:${(s - h0) * PX + 3}px;height:${(e - s) * PX - 6}px">Hueco libre · ${hfmt(e - s)} h</div>`; });
   html += `<div class="lane">`;
+  BL.forEach(x => { html += `<button class="sala" style="top:${(x.s - h0) * PX + 1}px;height:${Math.max((x.en - x.s) * PX - 3, 20)}px" onclick="event.stopPropagation();sheetBloqueo('${x.b.id}')">🚫 ${esc(x.b.nombre || 'Sala ocupada')} · ${x.b.ini}–${x.b.fin}</button>`; });
   items.forEach(it => {
     const c = catOf(it.e.cat);
     const top = (it.s - h0) * PX + 1, hgt = Math.max((it.en - it.s) * PX - 3, 22);
@@ -765,7 +816,7 @@ function sheetEvento(atH) {
   const now = new Date(); let h = now.getHours() + 1; if (h > 21) h = 9;
   const startV = atH != null ? pad(Math.floor(atH)) + ':' + pad(Math.round((atH % 1) * 60)) : pad(h) + ':00';
   openSheet(`<form class="stack" onsubmit="crearEvento(event)">
-    <h1 style="font-size:24px">Nuevo evento</h1>
+    <div class="row between"><h1 style="font-size:24px">Nuevo evento</h1><button type="button" class="chip" style="background:var(--bg)" onclick="sheetBloqueo('', '${d}', ${atH != null ? atH : 'null'})">🚫 Sala ocupada</button></div>
     <label class="f">Título<input class="in" name="title" placeholder="Ej. Readaptación · Marco (o elige cliente abajo)"></label>
     <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Área
       <div class="chips" id="catpick" style="flex-wrap:wrap">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
@@ -954,7 +1005,7 @@ async function moverEvento(id, start, mins) {
   }
 }
 function tapTimeline(ev, h0) {
-  if (ev.target.closest('.ev')) return;
+  if (ev.target.closest('.ev') || ev.target.closest('.sala')) return;
   const tl = ev.currentTarget, y = ev.clientY - tl.getBoundingClientRect().top;
   let h = h0 + y / 46; h = Math.round(h * 2) / 2; if (h < 0) h = 0; if (h > 23) h = 23;
   sheetEvento(h);
@@ -1040,7 +1091,8 @@ function viewSemana() {
     const blocks = layoutCols(evs.filter(e => e.start.slice(0, 10) === di)).map(it => {
       const e = it.e, c = catOf(e.cat), hgt = Math.max((it.en - it.s) * PX - 2, 12), w = 100 / it.ncol;
       return `<button class="blk" title="${esc(e.title)}" style="top:${(it.s - h0) * PX + 1}px;height:${hgt}px;left:calc(${it.col * w}% + 1px);width:calc(${w}% - 2px);right:auto;background:${c.bg};color:${c.fg}" onclick="event.stopPropagation();sheetDetalle('${esc(e.id)}','${e.start}')"><span class="bt" style="-webkit-line-clamp:${Math.max(1, Math.floor((hgt - 4) / 10))}">${esc(siglaEv(e.title, it.ncol > 1))}</span></button>`; }).join('');
-    return `<div class="day ${di === todayStr() ? 'today' : ''}" style="height:${H}px" role="button" tabindex="0" aria-label="${DIAS[i]} ${parseD(di).getDate()}" onclick="S.day='${di}';go('hoy')">${blocks}</div>`;
+    const salas = bloqueosDe(di).map(b => { const s0 = Math.max(hhm(b.ini), h0), s1 = Math.min(hhm(b.fin), h1); return s1 > s0 ? `<div class="sala" title="${esc(b.nombre || 'Sala ocupada')}" style="top:${(s0 - h0) * PX + 1}px;height:${(s1 - s0) * PX - 2}px;left:1px;right:1px;pointer-events:none"></div>` : ''; }).join('');
+    return `<div class="day ${di === todayStr() ? 'today' : ''}" style="height:${H}px" role="button" tabindex="0" aria-label="${DIAS[i]} ${parseD(di).getDate()}" onclick="S.day='${di}';go('hoy')">${salas}${blocks}</div>`;
   }).join('');
   return `<div class="stack">
     ${demoBanner()}
@@ -2069,6 +2121,12 @@ function viewAjustes() {
       <label class="f">Clave (TOKEN)<input class="in" id="apiTok" style="background:var(--bg)" value="${esc(c.token)}" autocomplete="off"></label>
       <button class="btn dark" onclick="guardarConexion()">Guardar y probar conexión</button>
     </div>
+    ${S.fin ? `<div class="card stack" style="gap:8px">
+      <b>Horas de sala ocupada</b>
+      <span class="muted" style="font-size:13px">Cuando la sala tiene otras actividades. No es trabajo ni se cobra: se ve sombreado en la agenda.</span>
+      ${bloqueos().map(b => `<button class="li" onclick="sheetBloqueo('${b.id}')"><span class="col grow" style="gap:2px;text-align:left"><b style="font-size:14px">${esc(b.nombre || 'Sala ocupada')}</b><span class="muted" style="font-size:12px">${esc(bloqueoTxt(b))}</span></span><span>›</span></button>`).join('') || '<span class="muted" style="font-size:12px">Aún no hay ninguna.</span>'}
+      <button class="btn" style="background:var(--bg)" onclick="sheetBloqueo()">+ Añadir horas de sala ocupada</button>
+    </div>` : ''}
     ${S.fin ? `<div class="card stack">
       <b>Conceptos de ingreso</b>
       <span class="muted" style="font-size:13px">Separados por comas. El orden decide el color.</span>

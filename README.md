@@ -106,3 +106,6 @@ Si una cita nueva no se puede guardar al momento (sin cobertura o Google tarda),
 
 ## Cliente nuevo desde la cita (v83)
 En «Nuevo evento», el primer botón de Cliente es «+ Cliente nuevo»: nombre, cómo aparece en la agenda, cómo paga (En mano · Bizum · Con factura · Empresa) y precio por sesión. «Crear y elegir» lo da de alta y lo deja elegido en la cita, sin perder lo que ya habías rellenado.
+
+## Horas de sala ocupada (v84)
+Horas en las que la sala tiene otras actividades (no es trabajo ni se cobra). Se crean desde «Nuevo evento» → «🚫 Sala ocupada» o en Ajustes → «Horas de sala ocupada»: cada semana (días + horas, con fecha de inicio y fin opcional) o un solo día. Se ven sombreadas en el día y en la semana, no suman horas de trabajo y no salen como «Hueco libre». No se guardan en Google Calendar (van en Config → bloqueos). Tocándolas se editan o se borran.
