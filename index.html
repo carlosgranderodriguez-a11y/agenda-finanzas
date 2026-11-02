@@ -182,7 +182,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v86';
+const VERSION = 'v87';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -241,7 +241,7 @@ function ask(msg, okText, withInput) {
     const el = $('#ask');
     el.innerHTML = `<div class="card stack" style="max-width:360px;width:100%;gap:14px;box-shadow:0 10px 40px rgba(0,0,0,.25)">
       <b style="font-size:16px;line-height:1.35">${esc(msg)}</b>
-      ${withInput ? '<input class="in" id="askIn" style="background:var(--bg)">' : ''}
+      ${withInput ? `<input class="in" id="askIn" style="background:var(--bg)" ${typeof withInput === 'object' ? `type="${withInput.type || 'text'}" value="${esc(withInput.value || '')}"` : ''}>` : ''}
       <div class="grid2"><button class="btn" style="background:var(--bg)" id="askNo">Cancelar</button><button class="btn ${withInput ? 'dark' : 'danger'}" id="askOk">${esc(okText || 'Borrar')}</button></div></div>`;
     el.style.display = 'flex';
     const done = v => { el.style.display = 'none'; el.innerHTML = ''; res(v); };
@@ -3048,8 +3048,10 @@ async function ajustarPrevias(ingId, li, delta, cid) {
   if (!L[li]) return;
   const n = num(L[li].bono), p = Math.max(0, Math.min(n, (num(L[li].previas) || 0) + delta));
   if (p === (num(L[li].previas) || 0)) { toast(delta > 0 ? 'El bono ya está completo' : 'No hay sesiones restadas'); return; }
+  let dia = todayStr();
+  if (delta > 0) { const ini = L[li].desde || i.fecha || dia; dia = await ask('¿Qué día fue esa sesión? (una que no esté en la agenda)', 'Restar', { type: 'date', value: ini < dia ? ini : dia }); if (!dia) return; }
   L[li].previas = p; if (!p) delete L[li].previas;
-  let F = Array.isArray(L[li].prevF) ? L[li].prevF.slice() : []; if (delta > 0) F.push(todayStr()); else F.pop(); F = F.slice(-p || F.length).sort(); if (p && F.length) L[li].prevF = F; else delete L[li].prevF;
+  let F = Array.isArray(L[li].prevF) ? L[li].prevF.slice() : []; if (delta > 0) F.push(dia); else F.pop(); F = F.slice(-p || F.length).sort(); if (p && F.length) L[li].prevF = F; else delete L[li].prevF;
   try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), delta > 0 ? 'Sesión restada' : 'Sesión devuelta'); render(); sheetFicha(cid); }
   catch (e) { toast(e.message); }
 }

@@ -87,6 +87,7 @@ Desde una sesión de la agenda, «Cobrar sesiones» pregunta lo mínimo: por cu�
 ## Fecha de la factura y mes del cobro (v74)
 Los resúmenes cuentan cada cobro en el mes de su fecha. Si al crear o editar una factura su fecha cae en otro mes que el cobro (p. ej. la pusiste el 1/11 y la corriges al 30/10), la app pregunta si pasar el cobro a ese mes.
 En el detalle de un cobro facturado, si la factura es de otro mes, sale un aviso con el botón «Pasar el cobro a <mes>» (sin regenerar el PDF) (v75).
+«− Restar 1 sesión» pregunta el día de esa sesión en vez de poner hoy (v87).
 
 ## Una sola regla de sesiones pagadas y un solo botón de cobro (v80)
 Todas las pantallas (agenda, resumen de sesiones, Efectivo y Bizum, ficha, bonos) usan la misma regla para saber si una sesión está pagada:
