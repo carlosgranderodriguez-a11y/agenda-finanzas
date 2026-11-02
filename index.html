@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v75';
+const VERSION = 'v76';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1221,6 +1221,8 @@ function facRows(D) {
         <span class="row" style="gap:6px;flex-wrap:wrap;font-size:12px"><span class="muted">${d.getDate()} ${MES_C[d.getMonth()]} ${d.getFullYear()}</span>${cob ? '<span class="badge b-ok">Cobrada</span>' : '<span class="badge b-warn">Pendiente</span>'}${ids.length > 1 ? `<span class="muted">${ids.length} cobros</span>` : ''}${f.enviada ? `<span class="badge" style="background:#DCE1F6;color:var(--accent)">Enviada ${parseD(f.enviada).getDate()}/${parseD(f.enviada).getMonth() + 1}</span>` : '<span class="badge b-grey">Sin enviar</span>'}</span></span>
       <b style="font-size:15px">${eur(total)}</b>
       <div class="row" style="gap:6px;width:100%;flex-wrap:wrap"><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetEditarFactura('${i.id}')">Editar factura</button>${i.factura_url ? `<a class="chip" style="background:var(--bg);text-decoration:none;color:var(--ink);display:inline-flex;align-items:center" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver PDF</a>` : ''}${f.fileId ? `<button class="chip" style="background:var(--bg)" onclick="sheetEnviarFac('${i.id}')">${f.enviada ? 'Reenviar' : 'Enviar por email'}</button>` : ''}${cob ? '' : `<button class="chip" style="background:var(--okbg);color:var(--ok)" onclick='sheetCobro("${i.id}", ${JSON.stringify(ids)})'>Marcar cobrada</button>`}</div>
+      ${(() => { const ff = fechaFacturaDe(i); if (!ff || !i.fecha || ff.slice(0, 7) === i.fecha.slice(0, 7)) return ''; const mn = f => MESES[+f.slice(5, 7) - 1];
+        return `<button class="row between" style="width:100%;border:0;border-radius:12px;background:var(--warnbg);color:var(--warn);padding:8px 12px;font-size:12px;font-weight:700;text-align:left;gap:8px" onclick="moverCobroAFactura('${i.id}',true)"><span>Su cobro cuenta en ${mn(i.fecha)} · toca para pasarlo a ${mn(ff)}</span><span>›</span></button>`; })()}
     </div>`; }).join('');
 }
 function facFiltrar(v) { S.facQ = v; const e = $('#facList'); if (e) e.innerHTML = facRows(facData()); }
@@ -1384,9 +1386,9 @@ function viewIngresos() {
 
 // fecha de la factura de un cobro (la suya o la de la factura principal si va enlazado)
 function fechaFacturaDe(i) { if (!facturado(i)) return ''; const f = fdOf(i); if (f.fecha) return f.fecha; const r = f.ref && ING().find(x => x.id === f.ref); return r ? (fdOf(r).fecha || '') : ''; }
-async function moverCobroAFactura(id) {
+async function moverCobroAFactura(id, enLista) {
   const i = ING().find(x => x.id === id), ff = i && fechaFacturaDe(i); if (!ff) return;
-  try { await saveIng(Object.assign({}, i, { fecha: ff }), 'Cobro pasado al ' + fmtLong(ff)); render(); sheetVerIngreso(id); } catch (e) { toast(e.message); }
+  try { await saveIng(Object.assign({}, i, { fecha: ff }), 'Cobro pasado al ' + fmtLong(ff)); render(); if (!enLista) sheetVerIngreso(id); } catch (e) { toast(e.message); }
 }
 function sheetVerIngreso(id) {
   const i = ING().find(x => x.id === id); if (!i) return;
