@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v74';
+const VERSION = 'v75';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1382,6 +1382,12 @@ function viewIngresos() {
   </div>`;
 }
 
+// fecha de la factura de un cobro (la suya o la de la factura principal si va enlazado)
+function fechaFacturaDe(i) { if (!facturado(i)) return ''; const f = fdOf(i); if (f.fecha) return f.fecha; const r = f.ref && ING().find(x => x.id === f.ref); return r ? (fdOf(r).fecha || '') : ''; }
+async function moverCobroAFactura(id) {
+  const i = ING().find(x => x.id === id), ff = i && fechaFacturaDe(i); if (!ff) return;
+  try { await saveIng(Object.assign({}, i, { fecha: ff }), 'Cobro pasado al ' + fmtLong(ff)); render(); sheetVerIngreso(id); } catch (e) { toast(e.message); }
+}
 function sheetVerIngreso(id) {
   const i = ING().find(x => x.id === id); if (!i) return;
   const c = clienteOf(i.cliente_id);
@@ -1390,6 +1396,8 @@ function sheetVerIngreso(id) {
     <h1 style="font-size:24px">${esc(c.nombre)}</h1>
     <div class="row between" style="align-items:flex-end"><span class="muted" style="white-space:pre-line">${esc(i.concepto || '')}<br>${fmtLong(i.fecha)}</span><span class="big" style="font-size:34px">${eur(num(i.importe))}</span></div>
     <div class="col" style="gap:6px;background:var(--bg);border-radius:14px;padding:10px 12px">${lineasOf(i).map(l => `<div class="row" style="font-size:13px;gap:8px"><i style="width:9px;height:9px;border-radius:5px;background:${tipoColor(l.tipo)};flex:none"></i><span class="grow">${esc(tipoName(l.tipo))}${l.detalle ? `<span class="muted"> · ${esc(l.detalle)}</span>` : ''}</span><b>${eur(l.importe)}</b></div>`).join('')}</div>
+    ${(() => { const ff = fechaFacturaDe(i); if (!ff || !i.fecha || ff.slice(0, 7) === i.fecha.slice(0, 7)) return ''; const mn = f => MESES[+f.slice(5, 7) - 1] + ' ' + f.slice(0, 4);
+      return `<div class="card stack" style="gap:8px;background:var(--warnbg)"><span style="font-size:13px;color:var(--warn);font-weight:600">La factura es del ${esc(fmtLong(ff))}, pero este cobro cuenta en ${mn(i.fecha)}.</span><button class="btn dark" style="height:44px" onclick="moverCobroAFactura('${i.id}')">Pasar el cobro a ${mn(ff)}</button></div>`; })()}
     ${i.notas ? `<span class="muted" style="font-size:13px;white-space:pre-line">${esc(i.notas)}</span>` : ''}
     <div class="grid2">
       ${cobrado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','cobrado')">Marcar como no cobrado</button>` : `<button class="btn primary" onclick="sheetCobro('${i.id}')">Ya me ha pagado</button>`}
