@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v78';
+const VERSION = 'v79';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1044,20 +1044,24 @@ function monthStats(ym) {
 /* ---- lista de efectivo: todo lo que te pagan en mano, por mes, y qué parte va a facturación ---- */
 const esEfectivo = i => claseOf(clienteOf(i.cliente_id)) === 'efectivo' || i.metodo === 'efectivo' || (i.metodo === 'bizum' && cobrado(i));
 // sesiones de la agenda de los clientes que pagan sin factura, con su estado de pago
-function sesEfectivoHTML(ym) {
+// una tarjeta por cliente: sus cobros del mes (en mano / Bizum) y, plegadas, sus sesiones de la agenda
+function sesEfectivoHTML(ym, cob, fila) {
   const L = mesSesiones(ym);
-  if (!L) return `<div class="empty"><span class="spin"></span> Cargando las sesiones de la agenda…</div>`;
-  const act = L.filter(x => x.est.k !== 'excl' && sinFacturaCli(x.c.id)); if (!act.length) return '';
-  const by = {}; act.forEach(x => { (by[x.c.id] = by[x.c.id] || { c: x.c, L: [] }).L.push(x); });
-  const hecha = x => x.est.k === 'ok', sinCobro = x => x.est.k !== 'ok';
-  const cards = Object.values(by).sort((a, b) => b.L.filter(sinCobro).length - a.L.filter(sinCobro).length || a.c.nombre.localeCompare(b.c.nombre)).map(g => {
-    const ok = g.L.filter(hecha).length, no = g.L.length - ok, p = precioSesion(g.c.id);
+  const act = (L || []).filter(x => x.est.k !== 'excl' && sinFacturaCli(x.c.id));
+  const by = {}; act.forEach(x => { (by[x.c.id] = by[x.c.id] || { c: x.c, L: [], I: [] }).L.push(x); });
+  cob.forEach(i => { (by[i.cliente_id] = by[i.cliente_id] || { c: clienteOf(i.cliente_id), L: [], I: [] }).I.push(i); });
+  const g = Object.values(by); if (!g.length) return L ? '<div class="card"><div class="empty" style="padding:14px">No hay cobros en mano ni por Bizum este mes.</div></div>' : `<div class="empty"><span class="spin"></span> Cargando las sesiones de la agenda…</div>`;
+  const pend = x => x.L.filter(s => s.est.k !== 'ok').length;
+  return `<span class="eyebrow">Por cliente</span>` + g.sort((a, b) => pend(b) - pend(a) || sumI(b.I) - sumI(a.I) || a.c.nombre.localeCompare(b.c.nombre)).map(x => {
+    const no = pend(x), ok = x.L.length - no, p = precioSesion(x.c.id);
+    const res = x.L.length ? ses(x.L.length) + ' en la agenda · ' + (no ? `<b style="color:var(--bad)">${no} sin cobrar</b>` : 'todas cobradas') : 'Sin sesiones en la agenda';
     return `<div class="card stack" style="gap:6px;padding:12px 14px">
-      <div class="row between"><button style="border:0;background:none;padding:0;text-align:left;font-size:15px;font-weight:800;color:inherit" onclick="sheetPagoCliente('${g.c.id}')">${esc(g.c.nombre)} <span class="muted" style="font-weight:600;font-size:12px">· cómo pagó ›</span></button><span class="muted" style="font-size:12px">${ses(g.L.length)} · ${ok} con cobro · ${no} sin cobrar</span></div>
-      ${g.L.map(x => `<button class="row between" style="border:0;background:none;padding:4px 0;text-align:left;width:100%;gap:8px" onclick="abrirSesion('${esc(x.e.id)}','${x.e.start}')"><span style="font-size:13px">${diaCorto(x.d)} · ${hm(x.e.start)}</span><span class="badge ${x.est.k === 'ok' ? 'b-ok' : x.d <= todayStr() ? 'b-bad' : 'b-warn'}">${x.est.k === 'ok' ? 'Cobrada' : x.d <= todayStr() ? 'Sin cobrar' : 'Por cobrar'}</span></button>`).join('')}
-      ${no ? `<button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${g.c.id}')">Cobrar sesiones${p ? ' · ' + eur(Math.round(no * p * 100) / 100) : ''}</button>` : ''}
+      <div class="row between"><button style="border:0;background:none;padding:0;text-align:left;font-size:15px;font-weight:800;color:inherit" onclick="sheetPagoCliente('${x.c.id}')">${esc(x.c.nombre)} ›</button><b>${eur(sumI(x.I))}</b></div>
+      <span class="muted" style="font-size:12px">${res}</span>
+      ${x.I.length ? `<div style="border-top:1px solid var(--line)">${x.I.map(fila).join('')}</div>` : ''}
+      ${x.L.length ? `<details><summary class="muted" style="font-size:12px;cursor:pointer;padding:4px 0">Ver sesiones</summary>${x.L.map(s => `<button class="row between" style="border:0;background:none;padding:4px 0;text-align:left;width:100%;gap:8px" onclick="abrirSesion('${esc(s.e.id)}','${s.e.start}')"><span style="font-size:13px">${diaCorto(s.d)} · ${hm(s.e.start)}</span><span class="badge ${s.est.k === 'ok' ? 'b-ok' : s.d <= todayStr() ? 'b-bad' : 'b-warn'}">${s.est.k === 'ok' ? 'Cobrada' : s.d <= todayStr() ? 'Sin cobrar' : 'Por cobrar'}</span></button>`).join('')}</details>` : ''}
+      ${no ? `<button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${x.c.id}')">Cobrar ${ses(no)}${p ? ' · ' + eur(Math.round(no * p * 100) / 100) : ''}</button>` : ''}
     </div>`; }).join('');
-  return `<span class="eyebrow">Sesiones de la agenda</span>${cards}<span class="muted" style="font-size:12px">Salen de tu agenda (eventos con el nombre del cliente). «Cobrar sesiones» apunta lo que te han pagado hasta el día que elijas y las demás siguen por cobrar.</span>`;
 }
 function viewEfectivo() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
@@ -1065,8 +1069,8 @@ function viewEfectivo() {
   const L = ING().filter(i => esEfectivo(i) && (i.fecha || '').slice(0, 7) === ym).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
   const cob = L.filter(cobrado), deb = L.filter(i => !cobrado(i)), fact = cob.filter(vaFactura), sin = cob.filter(noFacturar);
   const fd = f => { const x = parseD(f); return x.getDate() + ' ' + MES_C[x.getMonth()]; };
-  const fila = i => { const c = clienteOf(i.cliente_id), va = vaFactura(i);
-    return `<div class="li" style="align-items:center;gap:8px"><button class="row grow" style="gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">${fd(i.fecha)}${i.metodo ? ' · ' + metNom(i.metodo) : ''}${i.concepto ? ' · ' + esc(i.concepto) : ''}</span></span><b>${eur(num(i.importe))}</b></button>
+  const fila = (i, solo) => { const c = clienteOf(i.cliente_id), va = vaFactura(i), mb = i.metodo === 'bizum';
+    return `<div class="li" style="align-items:center;gap:8px"><button class="row grow" style="gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0" onclick="sheetVerIngreso('${i.id}')">${solo === true ? `<span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span>` : `<span class="badge" style="flex:none;${mb ? 'background:#DCE1F6;color:var(--accent)' : 'background:var(--okbg);color:var(--ok)'}">${mb ? 'Bizum' : 'En mano'}</span>`}<span class="col grow" style="gap:2px;min-width:0"><b style="font-size:14px">${solo === true ? esc(c.nombre) : fd(i.fecha)}</b><span class="muted" style="font-size:12px">${solo === true ? fd(i.fecha) + (i.metodo ? ' · ' + metNom(i.metodo) : '') + ' · ' : ''}${esc(i.concepto || '')}</span></span><b>${eur(num(i.importe))}</b></button>
       ${facturado(i) ? '<span class="badge b-grey">Facturado</span>' : `<button type="button" class="badge ${va ? 'b-warn' : 'b-grey'}" style="border:0;cursor:pointer" onclick="setDestino('${i.id}',${!va},true)">${va ? 'A facturación' : 'Sin factura'}</button>`}
     </div>`; };
   return `<div class="stack">${demoBanner()}
@@ -1074,11 +1078,8 @@ function viewEfectivo() {
     <div class="row between"><button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button><h1 style="font-size:22px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()}</h1><button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button></div>
     <div class="hero"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Cobrado sin factura en mano o Bizum</span><span class="big" style="font-size:40px">${eur(sumI(cob))}</span>
       <div class="grid3"><div class="mini"><span>En mano</span><span style="color:#7FD1AE">${eur0(sumI(cob.filter(i => i.metodo !== 'bizum')))}</span></div><div class="mini"><span>Bizum</span><span style="color:#9FB4FF">${eur0(sumI(cob.filter(i => i.metodo === 'bizum')))}</span></div><div class="mini"><span>A facturación</span><span style="color:#F0B95B">${eur0(sumI(fact))}</span></div></div></div>
-    ${deb.length ? `<span class="eyebrow">Sin cobrar</span><div class="card" style="padding:4px 14px">${deb.map(fila).join('')}</div>` : ''}
-    ${sesEfectivoHTML(ym)}
-    ${(() => { if (!cob.length) return '<span class="eyebrow">Cobros apuntados</span><div class="card"><div class="empty" style="padding:14px">No hay cobros en mano ni por Bizum este mes.</div></div>';
-      const grp = [['En mano', cob.filter(i => i.metodo !== 'bizum')], ['Bizum', cob.filter(i => i.metodo === 'bizum')]].filter(g => g[1].length);
-      return grp.map(([n, L]) => `<div class="row between"><span class="eyebrow">${n} · ${L.length} ${L.length === 1 ? 'cobro' : 'cobros'}</span><b style="font-size:14px">${eur(sumI(L))}</b></div><div class="card" style="padding:4px 14px">${L.map(fila).join('')}</div>`).join(''); })()}
+    ${deb.length ? `<span class="eyebrow">Sin cobrar</span><div class="card" style="padding:4px 14px">${deb.map(i => fila(i, true)).join('')}</div>` : ''}
+    ${sesEfectivoHTML(ym, cob, fila)}
     <span class="muted" style="font-size:12px">Los clientes de tipo «Efectivo» se apuntan ya cobrados en mano. Toca la etiqueta de un cobro para mandarlo a facturación o dejarlo sin factura.</span>
   </div>`;
 }
