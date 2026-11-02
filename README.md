@@ -77,3 +77,6 @@ En «Efectivo y Bizum», toca el nombre de un cliente en «Sesiones de la agenda
 
 ## Clientes que forman parte de otro (v72)
 En la ficha de un cliente, «¿Forma parte de otro cliente?» (p. ej. Diego Aguado y Hugo Llanos dentro de Alberto Santamaría). Sus sesiones de la agenda pasan a contar en el cliente principal, y lo que pague ese cliente las cubre. La ficha del principal muestra «Incluye a…» y la lista de clientes lo indica.
+
+## Cobrar sesiones en un solo paso (v73)
+Desde una sesión de la agenda, «Cobrar sesiones» pregunta lo mínimo: por cuántas sesiones es el pago (1, el bono, el doble u otro número; el importe se calcula solo), cómo pagó (En mano · Bizum · Transferencia · Aún no) y desde qué día. En mano y Bizum van a «Efectivo y Bizum» sin facturar; transferencia se puede facturar. Concepto y sesiones previas quedan en «Más opciones». Los cobros por Bizum de cualquier cliente salen ahora también en «Efectivo y Bizum».

@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v72';
+const VERSION = 'v73';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1042,7 +1042,7 @@ function monthStats(ym) {
   return { I, G, ingresos, cobrado: cob, gastos, neto: ingresos - gastos, netoReal: cob - gastos, debe: sumI(I.filter(debe)), previsto: sumI(I.filter(previsto)) };
 }
 /* ---- lista de efectivo: todo lo que te pagan en mano, por mes, y qué parte va a facturación ---- */
-const esEfectivo = i => claseOf(clienteOf(i.cliente_id)) === 'efectivo' || i.metodo === 'efectivo';
+const esEfectivo = i => claseOf(clienteOf(i.cliente_id)) === 'efectivo' || i.metodo === 'efectivo' || (i.metodo === 'bizum' && cobrado(i));
 // sesiones de la agenda de los clientes que pagan sin factura, con su estado de pago
 function sesEfectivoHTML(ym) {
   const L = mesSesiones(ym);
@@ -2549,7 +2549,7 @@ async function guardarTarifas() {
   catch (e) { toast(e.message); }
 }
 function ptTar(i) { const t = tarifas()[i]; PT.imp = String(t.p); PT.det = t.n; renderPuntual(); }
-function vtTar(i) { const t = tarifas()[i]; VT.imp = String(t.p); VT.det = t.n; renderVenta(); }
+function vtTar(i) { const t = tarifas()[i]; VT.imp = String(t.p); VT.manual = true; VT.det = t.n; renderVenta(); }
 function ccTar(i) { const t = tarifas()[i]; CC._psuelta = String(t.p); renderClienteSheet(); }
 
 /* =================== ENTRENO PUNTUAL =================== */
@@ -2611,7 +2611,7 @@ function puntualEnEvento(e) {
   if (i) return `<button class="card row between" style="border:0;text-align:left;width:100%;background:var(--okbg)" onclick="sheetVerIngreso('${i.id}')"><span style="font-size:13px;color:var(--ok);font-weight:700">${cobrado(i) ? 'Pagado' : 'Apuntado (te debe)'} · ${eur(num(i.importe))}${i.metodo ? ' · ' + metNom(i.metodo) : ''}</span><span>›</span></button>`;
   const c = S.fin.clientes.find(x => titleHas(e, x));
   const nb = c ? (num(metaOf(c.id).nbono) || 4) : 4, pb = c ? num(metaOf(c.id).pbono) : 0;
-  return `${c ? `<button class="btn primary" onclick="sheetVenta('${c.id}',${nb})">Vender bono de ${nb}${pb ? ' · ' + eur(pb) : ''} (pagado o pendiente)</button>` : ''}<button class="btn" style="background:var(--bg)" onclick="sheetPuntual({cid:'${c ? c.id : ''}',fecha:'${e.start.slice(0, 10)}',ev:'${esc(evKey(e))}'})">Cobrar como entreno puntual</button>`;
+  return c ? `<button class="btn primary" onclick="sheetVenta('${c.id}',${nb},'${e.start.slice(0, 10)}')">Cobrar sesiones${pb ? ' · bono de ' + nb + ' ' + eur(pb) : ''} (en mano, Bizum…)</button>` : `<button class="btn primary" onclick="sheetPuntual({cid:'',fecha:'${e.start.slice(0, 10)}',ev:'${esc(evKey(e))}'})">Cobrar como entreno puntual</button>`;
 }
 
 /* =================== RESUMEN DEL MES =================== */
@@ -2970,27 +2970,34 @@ async function borrarBono(ingId, cid) {
   catch (e) { toast(e.message); }
 }
 let VT = null;
-function sheetVenta(cid, n) {
-  const c = clienteOf(cid), m = metaOf(cid);
-  VT = { metodo: metodoHabitual(cid), cid, n: String(n), imp: String(n === 1 ? (num(m.psuelta) || '') : (num(m.pbono) || '')), cobrado: 'si', tipo: m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]), fecha: todayStr() };
-  renderVenta();
+function vtPrecio(cid, n) { const m = metaOf(cid), c = clienteOf(cid); n = Math.max(1, Math.round(num(n)) || 1); if (num(m.nbono) === n && num(m.pbono)) return num(m.pbono); const ps = num(m.psuelta) || (num(m.pbono) && num(m.nbono) ? Math.round(num(m.pbono) / num(m.nbono) * 100) / 100 : 0) || num(c.tarifa) || 0; return ps ? Math.round(ps * n * 100) / 100 : 0; }
+function sheetVenta(cid, n, fecha) {
+  const m = metaOf(cid), hab = metodoHabitual(cid);
+  VT = { metodo: ['efectivo', 'bizum', 'transferencia'].includes(hab) ? hab : 'efectivo', cid, n: String(n), imp: '', manual: false, cobrado: 'si', tipo: m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]), fecha: fecha || todayStr() };
+  VT.imp = String(vtPrecio(cid, n) || ''); renderVenta();
 }
+// pago en un solo paso: cuántas sesiones paga · cómo (en mano / Bizum / transferencia / aún no) · importe
+function vtN(n) { VT.n = String(n); if (!VT.manual) VT.imp = String(vtPrecio(VT.cid, n) || ''); renderVenta(); }
+function vtForma(f) { if (f === 'debe') { VT.cobrado = 'no'; } else { VT.cobrado = 'si'; VT.metodo = f; } renderVenta(); }
 function renderVenta() {
   S._fichaId = null;
-  const c = clienteOf(VT.cid), suelta = num(VT.n) === 1;
+  const c = clienteOf(VT.cid), n = Math.max(1, Math.round(num(VT.n)) || 1), forma = VT.cobrado !== 'si' ? 'debe' : (VT.metodo || 'efectivo'), nb = num(metaOf(VT.cid).nbono) || 4;
+  const chips = [...new Set([1, nb, nb * 2, n])].sort((a, b) => a - b);
   openSheet(`<form class="stack" onsubmit="guardarVenta(event)">
-    <h1 style="font-size:22px">${suelta ? 'Sesión suelta' : 'Nuevo bono'} · ${esc(c.nombre)}</h1>
-    <div class="grid2">
-      <label class="f">Sesiones<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value"></label>
-      <label class="f">Precio (€)<input class="in" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value" style="font-weight:800;font-size:18px"></label>
-    </div>
-    ${tarifaChips('vtTar', VT.det)}
-    <label class="f">Fecha<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
-    ${num(VT.n) > 1 ? `<label class="f">Sesiones ya hechas de este bono (fuera de la agenda)<input class="in" inputmode="numeric" value="${esc(VT.previas || '')}" oninput="VT.previas=this.value" placeholder="0"></label>` : ''}
-    <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${VT.tipo === t ? 'on' : ''}" style="${VT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="VT.tipo='${esc(t).replace(/'/g, '')}';renderVenta()">${esc(t)}</button>`).join('')}</div></div>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Te ha pagado ya?</span><div class="opt"><button type="button" class="${VT.cobrado === 'si' ? 'on' : ''}" onclick="VT.cobrado='si';renderVenta()">Sí</button><button type="button" class="${VT.cobrado !== 'si' ? 'on' : ''}" onclick="VT.cobrado='no';renderVenta()">No, me debe</button></div></div>
-    ${VT.cobrado === 'si' ? `<div class="col" style="gap:6px"><span class="eyebrow">¿Cómo?</span>${metChips(VT.metodo || '', 'setVtM')}</div>` : ''}
-    <button class="btn primary" type="submit">Guardar</button>
+    <h1 style="font-size:22px">Cobrar sesiones · ${esc(c.nombre)}</h1>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Por cuántas sesiones es el pago?</span>
+      <div class="chips" style="flex-wrap:wrap">${chips.map(k => `<button type="button" class="chip ${k === n ? 'on' : ''}" style="${k === n ? '' : 'background:var(--bg)'};min-width:48px;justify-content:center" onclick="vtN(${k})">${k}</button>`).join('')}</div>
+      <label class="f">Otro número<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value;if(!VT.manual){VT.imp=String(vtPrecio(VT.cid,this.value)||'');const e=$('#vtImp');if(e)e.value=VT.imp}"></label></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te ha pagado?</span>
+      <div class="opt" style="flex-wrap:wrap">${[['efectivo', 'En mano'], ['bizum', 'Bizum'], ['transferencia', 'Transferencia'], ['debe', 'Aún no']].map(([k, l]) => `<button type="button" class="${forma === k ? 'on' : ''}" onclick="vtForma('${k}')">${l}</button>`).join('')}</div>
+      <span class="muted" style="font-size:12px">${forma === 'efectivo' || forma === 'bizum' ? 'Va a «Efectivo y Bizum» y no se factura. Las ' + n + (n === 1 ? ' sesión queda pagada' : ' siguientes sesiones quedan pagadas') + ' desde la fecha.' : forma === 'debe' ? 'Queda apuntado como pendiente de cobro.' : 'Se podrá facturar.'}</span></div>
+    <label class="f">Importe (€)<input class="in" id="vtImp" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value;VT.manual=true" style="font-weight:800;font-size:20px"></label>
+    <label class="f">Desde el día<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
+    <details style="font-size:13px"><summary class="muted" style="cursor:pointer;padding:4px 0">Más opciones</summary><div class="stack" style="gap:10px;margin-top:8px">
+      ${tarifaChips('vtTar', VT.det)}
+      ${n > 1 ? `<label class="f">Sesiones ya hechas de este bono (fuera de la agenda)<input class="in" inputmode="numeric" value="${esc(VT.previas || '')}" oninput="VT.previas=this.value" placeholder="0"></label>` : ''}
+      <div class="col" style="gap:6px"><span class="eyebrow">Concepto</span><div class="chips" style="flex-wrap:wrap">${tiposList().map(t => `<button type="button" class="chip ${VT.tipo === t ? 'on' : ''}" style="${VT.tipo === t ? '' : `background:${tipoColor(t)}1A;color:${tipoColor(t)}`}" onclick="VT.tipo='${esc(t).replace(/'/g, '')}';renderVenta()">${esc(t)}</button>`).join('')}</div></div></div></details>
+    <button class="btn primary" type="submit">Guardar cobro</button>
     <button class="btn" type="button" style="background:var(--bg)" onclick="sheetFicha('${VT.cid}')">Volver</button>
   </form>`);
 }
@@ -3000,12 +3007,12 @@ async function guardarVenta(ev) {
   const n = Math.max(1, Math.round(num(VT.n))), imp = num(VT.imp);
   if (!imp) { toast('Pon el precio'); return; }
   const det = (n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones') + (VT.det ? ' · ' + VT.det : '');
-  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', metodo: VT.cobrado === 'si' ? (VT.metodo || '') : '', facturado: 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
+  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', metodo: VT.cobrado === 'si' ? (VT.metodo || '') : '', facturado: VT.cobrado === 'si' && (VT.metodo === 'efectivo' || VT.metodo === 'bizum') ? 'nunca' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
   try {
     await saveIng(o, det + ' apuntado');
     // recuerda precio/sesiones para la próxima vez
-    const m = metaOf(VT.cid), nm = Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : { nbono: String(n), pbono: String(imp) }, m.tipo ? {} : { tipo: VT.tipo });
+    const m = metaOf(VT.cid), nm = Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : (num(m.nbono) && num(m.nbono) !== n ? {} : { nbono: String(n), pbono: String(imp) }), m.tipo ? {} : { tipo: VT.tipo });
     if (JSON.stringify(m) !== JSON.stringify(nm)) await saveMeta(VT.cid, nm);
     render(); sheetFicha(VT.cid);
   } catch (e) { toast(e.message); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); }
