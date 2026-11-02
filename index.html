@@ -182,7 +182,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v85';
+const VERSION = 'v86';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1503,11 +1503,11 @@ async function moverCobroAFactura(id, enLista) {
   const i = ING().find(x => x.id === id), ff = i && fechaFacturaDe(i); if (!ff) return;
   try { await saveIng(Object.assign({}, i, { fecha: ff }), 'Cobro pasado al ' + fmtLong(ff)); render(); if (!enLista) sheetVerIngreso(id); } catch (e) { toast(e.message); }
 }
-async function cambiarDesde(id, d) {
+async function cambiarDesde(id, d, cid) {
   const i = ING().find(x => x.id === id); if (!i || !d) return;
   const L = lineasOf(i), k = L.findIndex(l => num(l.bono) > 0 && !l.ev); if (k < 0) return;
   L[k].desde = d;
-  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), 'Cuenta desde el ' + fmtLong(d)); render(); sheetVerIngreso(id); } catch (e) { toast(e.message); }
+  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), 'Cuenta desde el ' + fmtLong(d)); render(); if (cid) sheetFicha(cid); else sheetVerIngreso(id); } catch (e) { toast(e.message); }
 }
 function sheetVerIngreso(id) {
   const i = ING().find(x => x.id === id); if (!i) return;
@@ -2129,6 +2129,11 @@ function viewAjustes() {
       <label class="f">Clave (TOKEN)<input class="in" id="apiTok" style="background:var(--bg)" value="${esc(c.token)}" autocomplete="off"></label>
       <button class="btn dark" onclick="guardarConexion()">Guardar y probar conexión</button>
     </div>
+    ${S.fin && allBonos().length ? `<div class="card stack" style="gap:8px">
+      <b>Bonos vendidos</b>
+      <span class="muted" style="font-size:13px">Toca un cliente para ver y corregir sus bonos: desde qué día cuentan, si están pagados, o borrar uno repetido.</span>
+      ${bonosResumen().sort((a, b) => a.c.nombre.localeCompare(b.c.nombre)).map(x => { const pend = x.st.bonos.filter(b => !b.cobrado).length; return `<button class="li" onclick="sheetFicha('${x.id}')"><span class="col grow" style="gap:2px;text-align:left"><b style="font-size:14px">${esc(x.c.nombre)}</b><span class="muted" style="font-size:12px">${x.st.bonos.length} ${x.st.bonos.length === 1 ? 'bono/suelta' : 'bonos/sueltas'} · quedan ${x.st.quedan}${pend ? ' · ' + pend + ' sin pagar' : ''}</span></span><span>›</span></button>`; }).join('')}
+    </div>` : ''}
     ${S.fin ? `<div class="card stack" style="gap:8px">
       <b>Horas de sala ocupada</b>
       <span class="muted" style="font-size:13px">Cuando la sala tiene otras actividades. No es trabajo ni se cobra: se ve sombreado en la agenda.</span>
@@ -2949,7 +2954,7 @@ function pagosDe(cid) {
   return { evs, hasta };
 }
 function estadoBono(cid, extra) {
-  const bonos = allBonos().filter(b => b.cid === cid && !b.ev), P = pagosDe(cid);
+  const bonos = allBonos().filter(b => b.cid === cid && !b.ev).sort((a, b) => (a.desde || a.fecha).localeCompare(b.desde || b.fecha)), P = pagosDe(cid);
   if (!bonos.length && !P.hasta.length && !Object.keys(P.evs).length) return null;
   const c = clienteOf(cid), excl = new Set(sesExcl()), now = nowLocal();
   const fechas = bonos.map(b => b.desde || addDays(b.fecha, -7)).concat(P.hasta.map(x => addDays(x.h, -62)), Object.keys(P.evs).map(k => (k.split('|')[1] || '').slice(0, 10)).filter(Boolean));
@@ -3033,7 +3038,7 @@ function sheetFicha(cid) {
       <button class="btn primary" onclick="sheetVenta('${cid}',${nb})">Cobrar sesiones (bono de ${nb}${pb ? ' · ' + eur(pb) : ''}, suelta…)</button>
     </div>
     ${pend ? `<button class="btn" style="background:var(--warnbg);color:var(--warn)" onclick="S.q='${esc(c.nombre).replace(/'/g, '')}';S.filter='pendientes';S.tipoF='';go('ingresos')">Te debe ${eur(pend)} · ver</button>` : ''}
-    ${st && st.bonos.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Historial de bonos y sueltas</span>${st.bonos.slice().reverse().map(b => { const key = b.ingId + '_' + b.li, open = S._bonoOpen === key; return `<div class="col" style="gap:8px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><div class="row" style="gap:8px"><button class="grow" style="font-size:13px;border:0;background:none;text-align:left;padding:6px 0" onclick="S._bonoOpen=${open ? "''" : `'${key}'`};sheetFicha('${cid}')"><b>${b.n === 1 ? 'Suelta' : 'Bono ' + b.n}</b> · ${fmtLong(b.fecha)} · ${eur(b.importe)} · usadas ${b.hechas}/${b.n} <span class="muted">${open ? '▴' : '▾ sesiones'}</span></button><button class="chip" style="background:var(--card);height:32px" onclick="S._fichaId=null;sheetIngreso('${b.ingId}')">Editar</button><button class="iconbtn" aria-label="Borrar" style="width:36px;height:36px;background:var(--badbg);color:var(--bad)" onclick="borrarBono('${b.ingId}','${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>${open ? `<div class="col" style="gap:6px;padding:0 6px 6px 0">${registroBono(b, cid)}</div>` : ''}</div>`; }).join('')}</div>` : ''}
+    ${st && st.bonos.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Historial de bonos y sueltas</span>${st.bonos.slice().reverse().map(b => { const key = b.ingId + '_' + b.li, open = S._bonoOpen === key; return `<div class="col" style="gap:8px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><div class="row" style="gap:8px"><button class="grow" style="font-size:13px;border:0;background:none;text-align:left;padding:6px 0" onclick="S._bonoOpen=${open ? "''" : `'${key}'`};sheetFicha('${cid}')"><b>${b.n === 1 ? 'Suelta' : 'Bono ' + b.n}</b> · desde ${fmtLong(b.desde || b.fecha).replace(/ \d{4}$/, '')} · ${eur(b.importe)} · usadas ${b.hechas}/${b.n} ${b.cobrado ? '<span class="badge b-ok">Pagado</span>' : '<span class="badge b-warn">Pendiente</span>'}${st.bonos.some(o => o !== b && o.n === b.n && num(o.importe) === num(b.importe) && (o.desde || o.fecha) === (b.desde || b.fecha)) ? ' <span class="badge b-bad">¿Repetido?</span>' : ''} <span class="muted">${open ? '▴' : '▾ sesiones'}</span></button><button class="chip" style="background:var(--card);height:32px" onclick="S._fichaId=null;sheetIngreso('${b.ingId}')">Editar</button><button class="iconbtn" aria-label="Borrar" style="width:36px;height:36px;background:var(--badbg);color:var(--bad)" onclick="borrarBono('${b.ingId}','${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>${open ? `<div class="col" style="gap:6px;padding:0 6px 6px 0"><label class="f">Empieza a contar el día<input class="in" type="date" value="${esc(b.desde || b.fecha)}" onchange="cambiarDesde('${b.ingId}',this.value,'${cid}')" style="background:var(--card)"></label>${b.cobrado ? '' : `<button class="btn dark" style="height:40px" onclick="S._fichaId=null;sheetCobro('${b.ingId}')">Ya me lo ha pagado</button>`}${registroBono(b, cid)}</div>` : ''}</div>`; }).join('')}${st.bonos.some((b, k) => st.bonos.some((o, j) => j !== k && o.n === b.n && num(o.importe) === num(b.importe) && (o.desde || o.fecha) === (b.desde || b.fecha))) ? '<span style="font-size:12px;color:var(--bad);font-weight:600">Hay bonos que parecen repetidos (mismo número de sesiones, precio y día de inicio). Si solo te ha comprado uno, borra el otro con la papelera.</span>' : ''}</div>` : ''}
     ${st && st.devueltas.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Sesiones devueltas (no cuentan)</span>${st.devueltas.map(s => `<div class="row" style="gap:8px;font-size:13px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><span class="grow">${fmtS(s)}</span><button class="chip" style="background:var(--card);height:30px;font-size:12px" onclick="devolverSesion('${esc(s.id)}','${s.start}','${cid}',1)">Volver a contar</button></div>`).join('')}</div>` : ''}
   </div>`);
 }

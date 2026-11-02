@@ -110,3 +110,6 @@ En «Nuevo evento», el primer botón de Cliente es «+ Cliente nuevo»: nombre,
 ## Horas de sala ocupada (v84)
 Horas en las que la sala tiene otras actividades (no es trabajo ni se cobra). Se crean desde «Nuevo evento» → «🚫 Sala ocupada» o en Ajustes → «Horas de sala ocupada»: cada semana (días + horas, con fecha de inicio y fin opcional) o un solo día. Se ven sombreadas en el día y en la semana, no suman horas de trabajo y no salen como «Hueco libre». No se guardan en Google Calendar (van en Config → bloqueos). Tocándolas se editan o se borran.
 En el detalle de un cobro de bono o sesiones se puede cambiar «Cubre N sesiones empezando el día…» (p. ej. un bono que se paga el jueves pero incluye dos sesiones que debía de antes) (v85).
+
+## Bonos vendidos (v86)
+Ajustes → «Bonos vendidos»: lista de clientes con bonos; tocando uno se abre su ficha. En «Historial de bonos y sueltas» cada bono muestra desde qué día cuenta, si está pagado o pendiente y marca «¿Repetido?» si hay otro igual (mismas sesiones, precio y día de inicio). Al abrir un bono: cambiar «Empieza a contar el día», «Ya me lo ha pagado» y la papelera para borrarlo. Los bonos se gastan en orden de su día de inicio.
