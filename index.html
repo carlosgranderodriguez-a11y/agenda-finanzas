@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v76';
+const VERSION = 'v77';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2993,6 +2993,7 @@ function sheetVenta(cid, n, fecha) {
   VT.imp = String(vtPrecio(cid, n) || ''); renderVenta();
 }
 // pago en un solo paso: cuántas sesiones paga · cómo (en mano / Bizum / transferencia / aún no) · importe
+function vtUnit() { const n = Math.max(1, Math.round(num(VT.n)) || 1), i = num(VT.imp); return i ? (n > 1 ? eurRaw(Math.round(i / n * 100) / 100, true) + ' por sesión' : '') : 'Pon el importe'; }
 function vtN(n) { VT.n = String(n); if (!VT.manual) VT.imp = String(vtPrecio(VT.cid, n) || ''); renderVenta(); }
 function vtForma(f) { if (f === 'debe') { VT.cobrado = 'no'; } else { VT.cobrado = 'si'; VT.metodo = f; } renderVenta(); }
 function renderVenta() {
@@ -3007,7 +3008,7 @@ function renderVenta() {
     <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te ha pagado?</span>
       <div class="opt" style="flex-wrap:wrap">${[['efectivo', 'En mano'], ['bizum', 'Bizum'], ['transferencia', 'Transferencia'], ['debe', 'Aún no']].map(([k, l]) => `<button type="button" class="${forma === k ? 'on' : ''}" onclick="vtForma('${k}')">${l}</button>`).join('')}</div>
       <span class="muted" style="font-size:12px">${forma === 'efectivo' || forma === 'bizum' ? 'Va a «Efectivo y Bizum» y no se factura. Las ' + n + (n === 1 ? ' sesión queda pagada' : ' siguientes sesiones quedan pagadas') + ' desde la fecha.' : forma === 'debe' ? 'Queda apuntado como pendiente de cobro.' : 'Se podrá facturar.'}</span></div>
-    <label class="f">Importe (€)<input class="in" id="vtImp" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value;VT.manual=true" style="font-weight:800;font-size:20px"></label>
+    <label class="f">Importe (€)<input class="in" id="vtImp" inputmode="decimal" required value="${esc(VT.imp)}" oninput="VT.imp=this.value;VT.manual=true;const u=$('#vtU');if(u)u.textContent=vtUnit()" style="font-weight:800;font-size:20px"><span class="muted" id="vtU" style="font-size:12px">${vtUnit()}</span></label>
     <label class="f">Desde el día<input class="in" type="date" value="${VT.fecha}" onchange="VT.fecha=this.value"></label>
     <details style="font-size:13px"><summary class="muted" style="cursor:pointer;padding:4px 0">Más opciones</summary><div class="stack" style="gap:10px;margin-top:8px">
       ${tarifaChips('vtTar', VT.det)}
@@ -3028,7 +3029,7 @@ async function guardarVenta(ev) {
   try {
     await saveIng(o, det + ' apuntado');
     // recuerda precio/sesiones para la próxima vez
-    const m = metaOf(VT.cid), nm = Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : (num(m.nbono) && num(m.nbono) !== n ? {} : { nbono: String(n), pbono: String(imp) }), m.tipo ? {} : { tipo: VT.tipo });
+    const m = metaOf(VT.cid), nm = num(VT.previas) > 0 ? m : Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : (num(m.nbono) && num(m.nbono) !== n ? {} : { nbono: String(n), pbono: String(imp) }), m.tipo ? {} : { tipo: VT.tipo });
     if (JSON.stringify(m) !== JSON.stringify(nm)) await saveMeta(VT.cid, nm);
     render(); sheetFicha(VT.cid);
   } catch (e) { toast(e.message); document.querySelectorAll('#sheet button').forEach(b => b.disabled = false); }
