@@ -182,7 +182,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v84';
+const VERSION = 'v85';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1503,6 +1503,12 @@ async function moverCobroAFactura(id, enLista) {
   const i = ING().find(x => x.id === id), ff = i && fechaFacturaDe(i); if (!ff) return;
   try { await saveIng(Object.assign({}, i, { fecha: ff }), 'Cobro pasado al ' + fmtLong(ff)); render(); if (!enLista) sheetVerIngreso(id); } catch (e) { toast(e.message); }
 }
+async function cambiarDesde(id, d) {
+  const i = ING().find(x => x.id === id); if (!i || !d) return;
+  const L = lineasOf(i), k = L.findIndex(l => num(l.bono) > 0 && !l.ev); if (k < 0) return;
+  L[k].desde = d;
+  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), 'Cuenta desde el ' + fmtLong(d)); render(); sheetVerIngreso(id); } catch (e) { toast(e.message); }
+}
 function sheetVerIngreso(id) {
   const i = ING().find(x => x.id === id); if (!i) return;
   const c = clienteOf(i.cliente_id);
@@ -1514,6 +1520,8 @@ function sheetVerIngreso(id) {
     ${(() => { const ff = fechaFacturaDe(i); if (!ff || !i.fecha || ff.slice(0, 7) === i.fecha.slice(0, 7)) return ''; const mn = f => MESES[+f.slice(5, 7) - 1] + ' ' + f.slice(0, 4);
       return `<div class="card stack" style="gap:8px;background:var(--warnbg)"><span style="font-size:13px;color:var(--warn);font-weight:600">La factura es del ${esc(fmtLong(ff))}, pero este cobro cuenta en ${mn(i.fecha)}.</span><button class="btn dark" style="height:44px" onclick="moverCobroAFactura('${i.id}')">Pasar el cobro a ${mn(ff)}</button></div>`; })()}
     ${i.notas ? `<span class="muted" style="font-size:13px;white-space:pre-line">${esc(i.notas)}</span>` : ''}
+    ${(() => { const L = lineasOf(i), k = L.findIndex(l => num(l.bono) > 0 && !l.ev); if (k < 0) return ''; const l = L[k], d = l.desde || i.fecha;
+      return `<label class="f">Cubre ${ses(num(l.bono))} empezando el día<input class="in" type="date" value="${esc(d)}" onchange="cambiarDesde('${i.id}',this.value)" style="background:var(--bg)"><span class="muted" style="font-size:12px">Pon el día de la primera sesión que paga este ${num(l.bono) === 1 ? 'cobro' : 'bono'} (puede ser anterior a cuando te paga).</span></label>`; })()}
     <div class="grid2">
       ${cobrado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','cobrado')">Marcar como no cobrado</button>` : `<button class="btn primary" onclick="sheetCobro('${i.id}')">Ya me ha pagado</button>`}
       ${noFacturar(i) && !facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="setDestino('${i.id}',true)">Mandar a facturación</button>` : i.factura_url ? `<a class="btn dark" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="${esc(i.factura_url)}" target="_blank" rel="noopener">Ver factura ${esc(i.num_factura || '')}</a>` : facturado(i) ? `<button class="btn" style="background:var(--bg)" onclick="toggleIng('${i.id}','facturado')">Quitar facturado</button>` : `<button class="btn dark" onclick="sheetFactura('${i.id}')">Crear factura</button>`}
