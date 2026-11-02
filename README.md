@@ -118,3 +118,6 @@ Ajustes → «Bonos vendidos»: lista de clientes con bonos; tocando uno se abre
 
 ## Widget al día (widget.js)
 El widget pide también las finanzas: «cobrado este mes» y «te deben» salen igual que en la app, las horas de sala ocupada se ven en gris en la barra del día y de la semana, los eventos toman el color del área del cliente y abajo pone la hora de la última actualización («act. 17:10»). No hace falta tocar el Apps Script. El script de Scriptable se actualiza solo la próxima vez que lo abras tocando el widget.
+
+## Clientes en lista al crear una cita (v89)
+En «Nuevo evento», los clientes salen en una lista con buscador: primero los del área elegida y luego todos, con sus iniciales. Escribe parte del nombre para filtrar. «+ Nuevo» crea uno sin salir de la cita y lo deja elegido.

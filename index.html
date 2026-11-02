@@ -86,6 +86,7 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .tl .hr{position:absolute;left:46px;right:0;border-top:1px solid var(--line)}
 .tl .hl{position:absolute;left:0;width:40px;font-size:11px;color:var(--muted);transform:translateY(-7px)}
 .tl .lane{position:absolute;left:46px;right:0;top:0;bottom:0}
+.clirow{width:100%;justify-content:flex-start;gap:10px;height:auto;min-height:42px;padding:6px 10px;border-radius:12px}
 .sala{position:absolute;left:0;right:0;border:0;border-radius:12px;background:repeating-linear-gradient(135deg,#E6E3DC 0 8px,#EFECE6 8px 16px);color:#6B6E75;font-size:12px;font-weight:700;text-align:left;padding:6px 10px;display:flex;align-items:flex-start;overflow:hidden}
 .wg .sala{border-radius:6px;padding:0;font-size:0}
 .ev.drag{z-index:5;box-shadow:0 10px 24px #0003;transform:scale(1.03);opacity:.95}
@@ -182,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v88';
+const VERSION = 'v89';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -822,7 +823,7 @@ function sheetEvento(atH) {
     <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Área
       <div class="chips" id="catpick" style="flex-wrap:wrap">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
     </div>
-    <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="chips" id="clipick" style="flex-wrap:wrap">${cliChips(S.cats[0] && S.cats[0].id)}</div><div id="cliInfo"></div></div>
+    <div class="col" style="gap:6px"><span class="eyebrow">Cliente (opcional)</span><div class="col" id="clipick" style="gap:6px">${cliChips(S.cats[0] && S.cats[0].id)}</div><div id="cliInfo"></div></div>
     <label class="f">Día<input class="in" type="date" name="date" value="${d}" required></label>
     <div class="grid2">
       <label class="f">Empieza<input class="in" type="time" name="start" value="${startV}" required oninput="finAuto(this)"></label>
@@ -872,12 +873,20 @@ function bonoPrefill() {
   const m = metaOf(cb.dataset.cid); f.bn.value = num(m.nbono) || 4; f.bp.value = vtPrecio(cb.dataset.cid, f.bn.value) || '';
   const hab = metodoHabitual(cb.dataset.cid), mb = hab && document.querySelector('#bonoMet .chip[data-m="' + hab + '"]'); if (mb) pickBonoMet(mb);
 }
+// clientes al crear una cita: lista con buscador (primero los del área elegida)
 function cliChips(area) {
   if (!S.fin) return '<span class="muted" style="font-size:12px">Cargando clientes…</span>';
-  const mine = clientsOfArea(area), rest = S.fin.clientes.filter(c => !mine.includes(c));
-  const ch = c => `<button type="button" class="chip" data-cid="${c.id}" style="background:var(--bg)" onclick="pickCli(this)">${esc(c.nombre)}</button>`;
-  const nuevo = `<button type="button" class="chip" style="background:var(--dark);color:#fff" onclick="nuevoCliEvento()">+ Cliente nuevo</button>`;
-  return nuevo + mine.map(ch).join('') + (rest.length ? `<details style="width:100%"><summary class="muted" style="font-size:12px;padding:6px 0;cursor:pointer">${mine.length ? 'Otros clientes' : 'Elegir cliente'} (${rest.length})</summary><div class="chips" style="flex-wrap:wrap;margin-top:6px">${rest.map(ch).join('')}</div></details>` : '') || '<span class="muted" style="font-size:12px">Sin clientes</span>';
+  const byN = (a, b) => String(a.nombre).localeCompare(String(b.nombre));
+  const mine = clientsOfArea(area).slice().sort(byN), rest = S.fin.clientes.filter(c => !mine.includes(c)).sort(byN);
+  const row = c => `<button type="button" class="chip clirow" data-cid="${c.id}" data-n="${esc(String(c.nombre + ' ' + aliasOf(c)).toLowerCase())}" style="background:var(--bg)" onclick="pickCli(this)"><span class="av" style="width:28px;height:28px;font-size:11px;flex:none;background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="grow" style="text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.nombre)}</span></button>`;
+  const cab = t => `<span class="eyebrow clicab" style="padding:6px 2px 2px">${t}</span>`;
+  return `<div class="row" style="gap:8px;width:100%"><input class="in" id="cliBus" placeholder="Buscar cliente…" autocomplete="off" oninput="filtraCli(this.value)" style="height:40px;background:var(--bg)"><button type="button" class="chip" style="background:var(--dark);color:#fff;flex:none;height:40px" onclick="nuevoCliEvento()">+ Nuevo</button></div>
+    <div id="cliLista" class="col" style="gap:4px;width:100%;max-height:260px;overflow-y:auto;-webkit-overflow-scrolling:touch">${mine.length ? cab('De esta área') + mine.map(row).join('') : ''}${rest.length ? cab(mine.length ? 'Todos los clientes' : 'Clientes') + rest.map(row).join('') : ''}${!S.fin.clientes.length ? '<span class="muted" style="font-size:12px">Aún no tienes clientes: crea uno con «+ Nuevo».</span>' : ''}</div>`;
+}
+function filtraCli(q) {
+  q = String(q || '').trim().toLowerCase();
+  document.querySelectorAll('#cliLista .clirow').forEach(b => { b.style.display = !q || b.dataset.n.includes(q) || b.classList.contains('on') ? '' : 'none'; });
+  document.querySelectorAll('#cliLista .clicab').forEach(h => { h.style.display = q ? 'none' : ''; });
 }
 // alta rápida de un cliente sin salir de la cita
 let NCE = null;
@@ -911,7 +920,7 @@ async function crearCliEvento() {
       toast('Cliente ' + nom + ' creado');
     }
     NCE = null;
-    const cp = $('#clipick'); if (cp) { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.dataset.cid = c.id; b.style.background = 'var(--bg)'; b.textContent = c.nombre; b.onclick = () => pickCli(b); const d = cp.querySelector('details'); if (d) cp.insertBefore(b, d); else cp.appendChild(b); pickCli(b); }
+    const li = $('#cliLista'); if (li) { let b = li.querySelector('.clirow[data-cid="' + c.id + '"]'); if (!b) { const t = document.createElement('div'); t.innerHTML = cliChips('').match(new RegExp('<button type="button" class="chip clirow" data-cid="' + c.id + '"[\\s\\S]*?</button>'))[0]; b = t.firstChild; li.insertBefore(b, li.firstChild); } const bus = $('#cliBus'); if (bus) { bus.value = ''; filtraCli(''); } pickCli(b); b.scrollIntoView && b.scrollIntoView({ block: 'nearest' }); }
   } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = 'Crear y elegir'; } }
 }
 function pickCli(b) {
