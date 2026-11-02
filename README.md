@@ -87,3 +87,12 @@ Desde una sesión de la agenda, «Cobrar sesiones» pregunta lo mínimo: por cu�
 ## Fecha de la factura y mes del cobro (v74)
 Los resúmenes cuentan cada cobro en el mes de su fecha. Si al crear o editar una factura su fecha cae en otro mes que el cobro (p. ej. la pusiste el 1/11 y la corriges al 30/10), la app pregunta si pasar el cobro a ese mes.
 En el detalle de un cobro facturado, si la factura es de otro mes, sale un aviso con el botón «Pasar el cobro a <mes>» (sin regenerar el PDF) (v75).
+
+## Una sola regla de sesiones pagadas y un solo botón de cobro (v80)
+Todas las pantallas (agenda, resumen de sesiones, Efectivo y Bizum, ficha, bonos) usan la misma regla para saber si una sesión está pagada:
+1. Un cobro vinculado a esa sesión la cubre.
+2. Un cobro «hasta una fecha» cubre todas las sesiones hasta ese día.
+3. Bonos y sesiones sueltas se gastan por orden desde el día en que empiezan («Desde el día»).
+Lo que no cubre nada sale «Sin pagar» (ya pasó) o «Por cobrar» (futura). Antes la agenda ignoraba los cobros «hasta una fecha» y decía que Alvaro tenía sesiones sin pagar.
+
+Para cobrar siempre se usa la misma hoja («Cobrar sesiones»): nº de sesiones, cómo pagó (En mano · Bizum · Transferencia · Aún no) e importe. Desde Efectivo y Bizum o la ficha del mes, las sesiones sin pagar ya vienen contadas. Avisa si apuntas un cobro igual a otro ya apuntado.

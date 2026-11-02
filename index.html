@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v79';
+const VERSION = 'v80';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1134,7 +1134,7 @@ const tipoName = t => t || 'Sin tipo';
 function lineasOf(i) {
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
   if (!Array.isArray(L) || !L.length) L = [{ tipo: '', importe: num(i.importe), detalle: '' }];
-  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (Array.isArray(l.prevF) && l.prevF.length) o.prevF = l.prevF; if (l.ev) o.ev = l.ev; if (l.hasta) o.hasta = l.hasta; if (num(l.cant) > 0) o.cant = num(l.cant); return o; });
+  return L.map(l => { const o = { tipo: l.tipo || '', importe: num(l.importe), detalle: l.detalle || '' }; if (num(l.bono) > 0) o.bono = num(l.bono); if (num(l.previas) > 0) o.previas = num(l.previas); if (Array.isArray(l.prevF) && l.prevF.length) o.prevF = l.prevF; if (l.ev) o.ev = l.ev; if (l.hasta) o.hasta = l.hasta; if (l.desde) o.desde = l.desde; if (num(l.cant) > 0) o.cant = num(l.cant); return o; });
 }
 // importe de un ingreso que corresponde a un tipo concreto (o todo si no hay filtro)
 const partOf = (i, tipo) => tipo ? lineasOf(i).filter(l => l.tipo === tipo).reduce((s, l) => s + l.importe, 0) : num(i.importe);
@@ -2665,44 +2665,16 @@ async function setMetodoCobro(id, metodo, cid) {
   try { await saveIng(Object.assign({}, i, { metodo }), 'Apuntado ' + (metodo === 'bizum' ? 'por Bizum' : 'en mano')); sheetPagoCliente(cid); render(); } catch (e) { toast(e.message); }
 }
 let TR = null;
+// cobrar lo pendiente de un cliente: abre la hoja única de cobro con las sesiones sin pagar ya contadas
 function sheetCobrarTramo(cid) {
-  const hoy = todayStr(), fin = finDeMes(); TR = { cid, hasta: S.month === hoy.slice(0, 7) ? hoy : fin, p: String(precioSesion(cid) || ''), fact: 'no', imp: null, metodo: ['efectivo', 'bizum'].includes(metodoHabitual(cid)) ? metodoHabitual(cid) : 'efectivo' };
-  trRecalc(); renderTramo();
-}
-function trSes() { return tramoPend(TR.cid).filter(s => s.d <= TR.hasta); }
-function trRecalc() { TR.n = trSes().length; TR.imp = null; }
-function trImp() { return TR.imp != null ? num(TR.imp) : Math.round(TR.n * num(TR.p) * 100) / 100; }
-function renderTramo() {
-  const c = clienteOf(TR.cid), L = trSes();
-  openSheet(`<form class="stack" onsubmit="guardarTramo(event)">
-    <h1 style="font-size:22px">Cobrar sesiones · ${esc(c.nombre)}</h1>
-    <span class="muted" style="font-size:13px">Se pagan las sesiones hechas hasta la fecha que elijas. Las siguientes siguen contando como por cobrar.</span>
-    <label class="f">Sesiones hasta el día<input class="in" type="date" value="${TR.hasta}" onchange="TR.hasta=this.value;trRecalc();renderTramo()"></label>
-    <div class="card" style="padding:4px 14px;background:var(--bg)">${L.length ? L.map(s => `<div class="row between" style="font-size:13px;padding:6px 0"><span>${diaCorto(s.d)} · ${hm(s.e.start)}</span><span class="muted">${esc(s.e.title || '')}</span></div>`).join('') : '<div class="empty" style="padding:12px">No hay sesiones por cobrar hasta esa fecha en este mes.</div>'}</div>
-    <div class="grid2"><label class="f">Nº de sesiones<input class="in" inputmode="numeric" value="${TR.n}" oninput="TR.n=Math.round(num(this.value));TR.imp=null;trTot()"></label><label class="f">Precio por sesión (€)<input class="in" inputmode="decimal" value="${esc(TR.p)}" oninput="TR.p=this.value;TR.imp=null;trTot()"></label></div>
-    <label class="f">Importe cobrado (€)<input class="in" id="trImp" inputmode="decimal" value="${trImp()}" oninput="TR.imp=this.value" style="font-weight:800;font-size:18px"></label>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Cómo te han pagado?</span><div class="opt"><button type="button" class="${TR.metodo === 'efectivo' ? 'on' : ''}" onclick="TR.metodo='efectivo';renderTramo()">En mano</button><button type="button" class="${TR.metodo === 'bizum' ? 'on' : ''}" onclick="TR.metodo='bizum';renderTramo()">Bizum</button></div><span class="muted" style="font-size:12px">Si una parte la pagaron en mano y otra por Bizum, apunta un cobro hasta el día de la primera y luego otro con la otra forma de pago.</span></div>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Va a facturación?</span><div class="opt"><button type="button" class="${TR.fact === 'si' ? 'on' : ''}" onclick="TR.fact='si';renderTramo()">Sí, se factura</button><button type="button" class="${TR.fact !== 'si' ? 'on' : ''}" onclick="TR.fact='no';renderTramo()">No, sin factura</button></div></div>
-    <button class="btn primary" type="submit" id="trBtn">Apuntar cobro</button>
-  </form>`);
-}
-function trTot() { const e = $('#trImp'); if (e) e.value = trImp(); }
-async function guardarTramo(ev) {
-  ev.preventDefault();
-  const imp = trImp(), n = Math.max(0, Math.round(num(TR.n))); if (!imp) { toast('Pon el importe'); return; }
-  const dup = ING().find(i => i.cliente_id === TR.cid && lineasOf(i).some(l => l.hasta && l.hasta >= TR.hasta));
-  if (dup && !await ask('Ya tienes apuntado un cobro de ' + eur(num(dup.importe)) + ' que cubre hasta el ' + fmtLong(lineasOf(dup).find(l => l.hasta).hasta) + '. Si lo apuntas otra vez, contará doble. ¿Apuntar otro cobro igualmente?', 'Sí, es otro pago')) return;
-  const c = clienteOf(TR.cid), m = metaOf(TR.cid), btn = $('#trBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
-  const det = n ? n + (n === 1 ? ' sesión' : ' sesiones') + (num(TR.p) ? ' × ' + String(num(TR.p)).replace('.', ',') + ' €' : '') : 'Sesiones hasta el ' + TR.hasta;
-  const tipo = m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]);
-  try {
-    await saveIng({ id: uid(), fecha: TR.hasta, cliente_id: TR.cid, concepto: (n || '') + (n ? (n === 1 ? ' sesión' : ' sesiones') + ' hasta el ' : 'Hasta el ') + TR.hasta.slice(8) + '/' + TR.hasta.slice(5, 7), importe: String(imp), cobrado: 'si', fecha_cobro: todayStr(), metodo: TR.metodo || 'efectivo', facturado: TR.fact === 'si' ? 'pend' : 'nunca', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo, importe: imp, detalle: det, hasta: TR.hasta }]) }, 'Cobro ' + (TR.metodo === 'bizum' ? 'por Bizum' : 'en efectivo') + ' apuntado');
-    closeSheet(); render();
-  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Apuntar cobro'; }
+  const P = tramoPend(cid).filter(x => x.d <= todayStr() || x.est.k === 'debe');
+  sheetVenta(cid, P.length || 1, P.length ? P[0].d : todayStr());
+  VT.pend = P.length;
+  if (P.length) { VT.imp = String(Math.round(P.length * precioSesion(cid) * 100) / 100 || vtPrecio(cid, P.length) || ''); renderVenta(); }
 }
 function mesSesiones(ym) {
   const evs = S.monthEv[ym]; if (!evs || !S.fin) return null;
-  const excl = new Set(sesExcl()), now = nowLocal(), cache = {}, seen = new Set(), hayBono = new Set(allBonos().map(b => b.cid));
+  const excl = new Set(sesExcl()), now = nowLocal(), cache = {}, seen = new Set();
   const stOf = cid => cache[cid] || (cache[cid] = estadoBono(cid, evs));
   const out = [];
   evs.filter(e => e && e.start && !e.allDay && e.start.slice(0, 7) === ym).sort((a, b) => a.start.localeCompare(b.start)).forEach(e => {
@@ -2711,18 +2683,9 @@ function mesSesiones(ym) {
     const fut = e.start >= now; let est = { k: 'sin', txt: 'Sin cobro asociado' };
     if (excl.has(k)) est = { k: 'excl', txt: 'No cuenta' };
     else {
-      const ing = ingresoDeEvento(e);
-      if (ing) est = cobrado(ing) ? { k: 'ok', txt: 'Pagada' + (num(ing.importe) ? ' · ' + eur(num(ing.importe)) : '') } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' };
-      else if (usaTramos(c.id)) {
-        const hasta = hastaPagado(c.id), d = e.start.slice(0, 10);
-        est = hasta && d <= hasta ? { k: 'ok', txt: 'Pagada en efectivo (hasta el ' + fmtLong(hasta).replace(/ \d{4}$/, '') + ')' } : { k: fut ? 'pend' : 'debe', txt: fut ? 'Por cobrar' : 'Hecha · por cobrar en efectivo' };
-      }
-      else if (hayBono.has(c.id)) {
-        const st = stOf(c.id), bi = st ? st.bonos.findIndex(b => b.ses.some(s => evKey(s) === k)) : -1;
-        if (bi >= 0) { const b = st.bonos[bi], n = b.previas + b.ses.findIndex(s => evKey(s) === k) + 1, tag = b.n === 1 ? 'Suelta' : 'Bono ' + n + '/' + b.n;
-          est = b.cobrado ? { k: 'ok', txt: tag + ' · pagado' } : { k: fut ? 'pend' : 'debe', txt: tag + ' · pendiente de pago' }; }
-        else est = fut ? { k: 'sin', txt: 'Reservada · sin bono' } : { k: 'debe', txt: 'Sin bono · sin pagar' };
-      }
+      const st = stOf(c.id), x = st && st.est[k];
+      if (x) est = x;
+      else { const ing = ingresoDeEvento(e); if (ing) est = cobrado(ing) ? { k: 'ok', txt: 'Pagada' } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' }; }
     }
     out.push({ e, c, d: e.start.slice(0, 10), est });
   });
@@ -2831,7 +2794,7 @@ function sheetClienteMes(cid) {
 // Las sesiones se descuentan con los eventos de la agenda que llevan el nombre del cliente (orden de llegada).
 function allBonos() {
   const out = [];
-  ING().forEach(i => lineasOf(i).forEach((l, li) => { if (num(l.bono) > 0) out.push({ li, prevF: Array.isArray(l.prevF) ? l.prevF : [], previas: Math.min(num(l.previas) || 0, num(l.bono)), ingId: i.id, cid: i.cliente_id, fecha: i.fecha || '', n: num(l.bono), importe: l.importe, cobrado: cobrado(i) }); }));
+  ING().forEach(i => lineasOf(i).forEach((l, li) => { if (num(l.bono) > 0) out.push({ li, ev: l.ev || '', desde: l.desde || '', prevF: Array.isArray(l.prevF) ? l.prevF : [], previas: Math.min(num(l.previas) || 0, num(l.bono)), ingId: i.id, cid: i.cliente_id, fecha: i.fecha || '', n: num(l.bono), importe: l.importe, cobrado: cobrado(i) }); }));
   return out.sort((a, b) => a.fecha.localeCompare(b.fecha));
 }
 function sesExcl() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.ses_excluidas) || '[]') || []; } catch (e) { return []; } }
@@ -2840,8 +2803,8 @@ const nowLocal = () => { const d = new Date(); return ymd(d) + 'T' + pad(d.getHo
 S.bonoEv = LS.get('af_bonoev', { e: null }).e; S.bonoRange = '';
 async function loadBonoEv(force) {
   if (!S.fin) return;
-  const bl = allBonos(); if (!bl.length) { if (!S.bonoEv) S.bonoEv = []; return; }
-  let from = bl[0].fecha; const lim = S._bonoLim === 'todo' ? '0000-00-00' : addDays(todayStr(), -120); if (from < lim) from = lim; from = addDays(from, -7);
+  const bl = allBonos().map(b => b.fecha).concat(...ING().map(i => lineasOf(i).filter(l => l.hasta).map(l => addDays(l.hasta, -62)))).sort(); if (!bl.length) { if (!S.bonoEv) S.bonoEv = []; return; }
+  let from = bl[0]; const lim = S._bonoLim === 'todo' ? '0000-00-00' : addDays(todayStr(), -120); if (from < lim) from = lim; from = addDays(from, -7);
   const to = addDays(todayStr(), 60), key = from + to;
   if ((!force && S.bonoRange === key) || S.loadingBonoEv) return;
   S.loadingBonoEv = true;
@@ -2849,20 +2812,47 @@ async function loadBonoEv(force) {
   catch (e) { if (!S.bonoEv) S.bonoEv = []; S.bonoRange = key; }
   finally { S.loadingBonoEv = false; if (['bonos', 'clientes', 'resumen', 'mes'].includes(route())) render(); if (S._det && sheetShown() && /No descontar/.test(SH.cur || '')) sheetDetalle(S._det[0], S._det[1]); if (S._fichaId && $('#sheet').classList.contains('show')) sheetFicha(S._fichaId); }
 }
+// ÚNICA regla de «sesión pagada» (agenda, resumen, efectivo, ficha):
+//  1) un cobro vinculado a una sesión concreta (ev) cubre esa sesión
+//  2) un cobro «hasta una fecha» cubre todas las sesiones hasta ese día
+//  3) bonos y sesiones sueltas se gastan por orden con las sesiones que quedan
+//  lo que no cubre nada: sin pagar (si ya pasó) o por cobrar (si es futura)
+function pagosDe(cid) {
+  const evs = {}, hasta = [];
+  ING().forEach(i => { if (i.cliente_id !== cid) return; lineasOf(i).forEach(l => { if (l.ev) evs[l.ev] = i; if (l.hasta) hasta.push({ h: l.hasta, i }); }); });
+  hasta.sort((a, b) => a.h.localeCompare(b.h));
+  return { evs, hasta };
+}
 function estadoBono(cid, extra) {
-  const bonos = allBonos().filter(b => b.cid === cid);
-  if (!bonos.length) return null;
-  const c = clienteOf(cid), excl = new Set(sesExcl()), start = addDays(bonos[0].fecha, -7), now = nowLocal();
+  const bonos = allBonos().filter(b => b.cid === cid && !b.ev), P = pagosDe(cid);
+  if (!bonos.length && !P.hasta.length && !Object.keys(P.evs).length) return null;
+  const c = clienteOf(cid), excl = new Set(sesExcl()), now = nowLocal();
+  const fechas = bonos.map(b => b.desde || addDays(b.fecha, -7)).concat(P.hasta.map(x => addDays(x.h, -62)), Object.keys(P.evs).map(k => (k.split('|')[1] || '').slice(0, 10)).filter(Boolean));
+  const start = fechas.sort()[0];
   const seen = new Set();
-  const pool = (S.bonoEv || []).concat(...Object.values(S.agenda).filter(Array.isArray), extra || []);
-  const ses = pool.filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
+  const pool = (S.bonoEv || []).concat(...Object.values(S.agenda).filter(Array.isArray), extra || [], ...Object.values(S.monthEv || {}).filter(Array.isArray));
+  const ses = pool.filter(e => e && !e.allDay && e.start && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
+  const cub = {}, resto = [];
+  ses.forEach(s => { const k = evKey(s), d = s.start.slice(0, 10), ie = P.evs[k];
+    if (ie) { cub[k] = { tipo: 'ev', i: ie }; return; }
+    const h = P.hasta.find(x => d <= x.h); if (h) { cub[k] = { tipo: 'hasta', i: h.i, h: h.h }; return; }
+    resto.push(s); });
   const used = bonos.map(() => []), sinBono = []; let bi = 0;
-  ses.forEach(s => { while (bi < bonos.length && used[bi].length >= bonos[bi].n - bonos[bi].previas) bi++; if (bi < bonos.length) used[bi].push(s); else sinBono.push(s); });
+  // cada sesión va al primer bono con hueco que ya hubiera empezado (los bonos nuevos guardan «desde»; los antiguos admiten 7 días antes)
+  const ini = b => b.desde || addDays(b.fecha, -7);
+  resto.forEach(s => { const d = s.start.slice(0, 10); while (bi < bonos.length && used[bi].length >= bonos[bi].n - bonos[bi].previas) bi++; let j = bi; while (j < bonos.length && (used[j].length >= bonos[j].n - bonos[j].previas || d < ini(bonos[j]))) j++; if (j < bonos.length && d >= ini(bonos[j])) used[j].push(s); else sinBono.push(s); });
   const info = bonos.map((b, i) => ({ ...b, ses: used[i], hechas: b.previas + used[i].filter(s => s.start < now).length, reservadas: used[i].filter(s => s.start >= now).length }));
   const vivos = info.filter(b => b.hechas < b.n);
+  // estado de cada sesión, igual en todas las pantallas
+  const est = {};
+  ses.forEach(s => { const k = evKey(s), fut = s.start >= now, cv = cub[k];
+    if (cv) { const ok = cobrado(cv.i); est[k] = ok ? { k: 'ok', txt: cv.tipo === 'hasta' ? 'Pagada (hasta el ' + fmtLong(cv.h).replace(/ \d{4}$/, '') + ')' : 'Pagada' + (num(cv.i.importe) ? ' · ' + eur(num(cv.i.importe)) : '') } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' }; return; }
+    const j = info.findIndex(b => b.ses.includes(s));
+    if (j >= 0) { const b = info[j], n = b.previas + b.ses.indexOf(s) + 1, tag = b.n === 1 ? 'Suelta' : 'Bono ' + n + '/' + b.n; est[k] = b.cobrado ? { k: 'ok', txt: tag + ' · pagado' } : { k: fut ? 'pend' : 'debe', txt: tag + ' · pendiente de pago' }; return; }
+    est[k] = fut ? { k: 'pend', txt: 'Por cobrar' } : { k: 'debe', txt: 'Sin pagar' }; });
   return { bonos: info, activo: vivos[0] || null, quedan: vivos.reduce((s, b) => s + b.n - b.hechas, 0), reservadas: info.reduce((s, b) => s + b.reservadas, 0),
-    sinBonoPast: sinBono.filter(s => s.start < now).length, sinBonoFut: sinBono.filter(s => s.start >= now).length, sinBono, ses,
-    devueltas: (() => { const sn = new Set(); return pool.filter(e => !e.allDay && titleHas(e, c) && e.start.slice(0, 10) >= start && excl.has(evKey(e)) && !sn.has(evKey(e)) && sn.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start)); })() };
+    sinBonoPast: sinBono.filter(s => s.start < now).length, sinBonoFut: sinBono.filter(s => s.start >= now).length, sinBono, ses, cub, est,
+    devueltas: (() => { const sn = new Set(); return pool.filter(e => e && !e.allDay && e.start && titleHas(e, c) && e.start.slice(0, 10) >= start && excl.has(evKey(e)) && !sn.has(evKey(e)) && sn.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start)); })() };
 }
 function bonoTag(cid) {
   const st = estadoBono(cid); if (!st) return '';
@@ -2886,7 +2876,7 @@ function viewBonos() {
       <span class="col grow" style="gap:5px"><b style="font-size:14px">${esc(x.c.nombre)}</b>${a ? dots(a.n, a.hechas, a.reservadas) : '<span class="muted" style="font-size:12px">Bono terminado</span>'}<span class="muted" style="font-size:11px">${x.st.bonos.reduce((s, b) => s + b.hechas, 0)} hechas de ${x.st.bonos.reduce((s, b) => s + b.n, 0)} compradas</span></span>
       <span class="col" style="align-items:flex-end;gap:3px"><b class="big" style="font-size:22px;color:${x.st.quedan <= 1 ? 'var(--warn)' : 'var(--ink)'}">${x.st.quedan}</b><span class="muted" style="font-size:11px">quedan</span>${x.st.sinBonoPast ? `<span class="badge b-bad">${x.st.sinBonoPast} sin pagar</span>` : x.st.quedan <= 1 ? '<span class="badge b-warn">Renovar</span>' : ''}</span></button>`; }).join('') : `<div class="empty">Aún no has vendido bonos. Elige un cliente abajo y pulsa «+ Bono».</div>`}</div>
     ${(() => { const con = new Set(L.map(x => x.id)); const sin = [...S.fin.clientes].filter(c => !con.has(c.id)).sort((a, b) => a.nombre.localeCompare(b.nombre));
-      return sin.length ? `<span class="eyebrow">Clientes sin bono</span><div class="card" style="padding:4px 14px">${sin.map(c => `<div class="li"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><button class="col grow" style="gap:1px;border:0;background:none;text-align:left;padding:0" onclick="sheetFicha('${c.id}')"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Ver ficha</span></button><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetVenta('${c.id}',${num(metaOf(c.id).nbono) || 4})">+ Bono</button><button class="chip" style="background:var(--bg)" onclick="sheetVenta('${c.id}',1)">Suelta</button></div>`).join('')}</div>` : ''; })()}
+      return sin.length ? `<span class="eyebrow">Clientes sin bono</span><div class="card" style="padding:4px 14px">${sin.map(c => `<div class="li"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><button class="col grow" style="gap:1px;border:0;background:none;text-align:left;padding:0" onclick="sheetFicha('${c.id}')"><b style="font-size:14px">${esc(c.nombre)}</b><span class="muted" style="font-size:12px">Ver ficha</span></button><button class="chip" style="background:var(--dark);color:#fff" onclick="sheetVenta('${c.id}',${num(metaOf(c.id).nbono) || 4})">Cobrar</button></div>`).join('')}</div>` : ''; })()}
     <button class="btn dark" onclick="sheetCliente()">+ Nuevo cliente</button>
   </div>`;
 }
@@ -2915,8 +2905,7 @@ function sheetFicha(cid) {
       ${st.sinBonoFut ? `<span class="muted" style="font-size:12px">${st.sinBonoFut} sesión(es) futura(s) en agenda sin bono</span>` : ''}
     </div>` : `<span class="muted" style="font-size:13px">Todavía no tiene bonos ni sesiones sueltas apuntadas.</span>`}
     <div class="grid2">
-      <button class="btn primary" onclick="sheetVenta('${cid}',${nb})">Vender bono de ${nb}${pb ? ' · ' + eur(pb) : ''}</button>
-      <button class="btn dark" onclick="sheetVenta('${cid}',1)">Sesión suelta${ps ? ' · ' + eur(ps) : ''}</button>
+      <button class="btn primary" onclick="sheetVenta('${cid}',${nb})">Cobrar sesiones (bono de ${nb}${pb ? ' · ' + eur(pb) : ''}, suelta…)</button>
     </div>
     ${pend ? `<button class="btn" style="background:var(--warnbg);color:var(--warn)" onclick="S.q='${esc(c.nombre).replace(/'/g, '')}';S.filter='pendientes';S.tipoF='';go('ingresos')">Te debe ${eur(pend)} · ver</button>` : ''}
     ${st && st.bonos.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Historial de bonos y sueltas</span>${st.bonos.slice().reverse().map(b => { const key = b.ingId + '_' + b.li, open = S._bonoOpen === key; return `<div class="col" style="gap:8px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><div class="row" style="gap:8px"><button class="grow" style="font-size:13px;border:0;background:none;text-align:left;padding:6px 0" onclick="S._bonoOpen=${open ? "''" : `'${key}'`};sheetFicha('${cid}')"><b>${b.n === 1 ? 'Suelta' : 'Bono ' + b.n}</b> · ${fmtLong(b.fecha)} · ${eur(b.importe)} · usadas ${b.hechas}/${b.n} <span class="muted">${open ? '▴' : '▾ sesiones'}</span></button><button class="chip" style="background:var(--card);height:32px" onclick="S._fichaId=null;sheetIngreso('${b.ingId}')">Editar</button><button class="iconbtn" aria-label="Borrar" style="width:36px;height:36px;background:var(--badbg);color:var(--bad)" onclick="borrarBono('${b.ingId}','${cid}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button></div>${open ? `<div class="col" style="gap:6px;padding:0 6px 6px 0">${registroBono(b, cid)}</div>` : ''}</div>`; }).join('')}</div>` : ''}
@@ -3006,6 +2995,7 @@ function renderVenta() {
   const chips = [...new Set([1, nb, nb * 2, n])].sort((a, b) => a - b);
   openSheet(`<form class="stack" onsubmit="guardarVenta(event)">
     <h1 style="font-size:22px">Cobrar sesiones · ${esc(c.nombre)}</h1>
+    ${VT.pend ? `<span class="muted" style="font-size:13px">Tiene <b>${ses(VT.pend)} sin pagar</b> desde el ${esc(fmtLong(VT.fecha))}: ya están contadas abajo.</span>` : ''}
     <div class="col" style="gap:6px"><span class="eyebrow">¿Por cuántas sesiones es el pago?</span>
       <div class="chips" style="flex-wrap:wrap">${chips.map(k => `<button type="button" class="chip ${k === n ? 'on' : ''}" style="${k === n ? '' : 'background:var(--bg)'};min-width:48px;justify-content:center" onclick="vtN(${k})">${k}</button>`).join('')}</div>
       <label class="f">Otro número<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value;if(!VT.manual){VT.imp=String(vtPrecio(VT.cid,this.value)||'');const e=$('#vtImp');if(e)e.value=VT.imp}"></label></div>
@@ -3027,8 +3017,10 @@ async function guardarVenta(ev) {
   ev.preventDefault();
   const n = Math.max(1, Math.round(num(VT.n))), imp = num(VT.imp);
   if (!imp) { toast('Pon el precio'); return; }
-  const det = (n === 1 ? 'Sesión suelta' : 'Bono ' + n + ' sesiones') + (VT.det ? ' · ' + VT.det : '');
-  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', metodo: VT.cobrado === 'si' ? (VT.metodo || '') : '', facturado: VT.cobrado === 'si' && (VT.metodo === 'efectivo' || VT.metodo === 'bizum') ? 'nunca' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
+  const dup = ING().find(i => i.cliente_id === VT.cid && num(i.importe) === imp && lineasOf(i).some(l => num(l.bono) === n && (l.desde || i.fecha) === VT.fecha));
+  if (dup && !await ask('Ya tienes apuntado un cobro igual (' + eur(imp) + ' por ' + ses(n) + ' desde el ' + fmtLong(VT.fecha) + '). Si lo apuntas otra vez, contará doble. ¿Apuntar otro?', 'Sí, es otro pago')) return;
+  const det = (n === 1 ? 'Sesión suelta' : (n === (num(metaOf(VT.cid).nbono) || 4) ? 'Bono ' + n + ' sesiones' : n + ' sesiones')) + (VT.det ? ' · ' + VT.det : '');
+  const o = { id: uid(), fecha: VT.fecha, cliente_id: VT.cid, concepto: det, importe: String(imp), cobrado: VT.cobrado, fecha_cobro: VT.cobrado === 'si' ? todayStr() : '', metodo: VT.cobrado === 'si' ? (VT.metodo || '') : '', facturado: VT.cobrado === 'si' && (VT.metodo === 'efectivo' || VT.metodo === 'bizum') ? 'nunca' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([Object.assign({ tipo: VT.tipo, importe: imp, detalle: det, bono: n, desde: VT.fecha }, Math.min(num(VT.previas), n) > 0 ? { previas: Math.min(num(VT.previas), n) } : {})]) };
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
   try {
     await saveIng(o, det + ' apuntado');
@@ -3041,7 +3033,7 @@ async function guardarVenta(ev) {
 // en la ficha de un evento: a qué bono cuenta y opción de no descontarlo
 function bonoEnEvento(e) {
   if (!S.fin) return '';
-  const c = S.fin.clientes.find(x => allBonos().some(b => b.cid === x.id) && titleHas(e, x)); if (!c) return '';
+  const c = cliDeEvento(e); if (!c || !estadoBono(c.id)) return '';
   const excl = sesExcl().includes(evKey(e));
   let txt = '', extra = '';
   if (!excl) {
@@ -3051,7 +3043,7 @@ function bonoEnEvento(e) {
         const rows = sesManual(b).map(f => `<span style="font-size:13px">${++q}. ${f ? fd(f) : 'sin fecha'} <span class="muted">· apuntada a mano</span></span>`)
           .concat(b.ses.map(x => { const yo = evKey(x) === evKey(e); return `<span style="font-size:13px;${yo ? 'font-weight:800;color:var(--accent)' : ''}">${++q}. ${fd(x.start)} · ${hm(x.start)}${yo ? ' · esta sesión' : x.start >= now ? ' <span class="muted">· reservada</span>' : ''}</span>`; }));
         for (let r = q + 1; r <= b.n; r++) rows.push(`<span class="muted" style="font-size:13px">${r}. por hacer</span>`);
-        extra += `<div class="col" style="gap:3px;margin-top:2px"><span class="eyebrow">Sesiones de este bono</span>${rows.join('')}</div>`; } } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = `<b style="color:var(--bad)">Sin bono: no está pagada</b>${st.sinBonoPast > 1 ? ` · lleva <b style="color:var(--bad)">${st.sinBonoPast} sin pagar</b>` : ''}`; else if (S.loadingBonoEv) txt = 'Calculando…'; }
+        extra += `<div class="col" style="gap:3px;margin-top:2px"><span class="eyebrow">Sesiones de este bono</span>${rows.join('')}</div>`; } } else if (st.cub[evKey(e)]) { const x = st.est[evKey(e)]; txt = x ? (x.k === 'ok' ? '<b style="color:var(--ok)">' + esc(x.txt) + '</b>' : '<b style="color:var(--bad)">' + esc(x.txt) + '</b>') : ''; } else if (st.sinBono.some(s => evKey(s) === evKey(e))) txt = `<b style="color:var(--bad)">Sin bono: no está pagada</b>${st.sinBonoPast > 1 ? ` · lleva <b style="color:var(--bad)">${st.sinBonoPast} sin pagar</b>` : ''}`; else if (S.loadingBonoEv) txt = 'Calculando…'; }
   }
   return `<div class="card" style="background:var(--bg);padding:10px 12px;display:flex;flex-direction:column;gap:6px"><span style="font-size:13px"><b>${esc(c.nombre)}</b> · ${excl ? 'no se descuenta del bono' : txt || 'bono'}</span>${extra}<button class="chip" style="background:var(--card);align-self:flex-start" onclick="sheetFicha('${c.id}')">Ver bono y sesiones ›</button>
     <label class="row" style="gap:8px;font-size:13px;color:var(--muted)"><input type="checkbox" ${excl ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--dark)" onchange="toggleExcl('${esc(e.id)}','${e.start}',this.checked)"> No descontar (cancelada / no cuenta)</label></div>`;
