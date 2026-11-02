@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v71';
+const VERSION = 'v72';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -290,7 +290,17 @@ function clientAreaRules() {
 function evAreaMap() { try { return JSON.parse((S.fin && S.fin.config && S.fin.config.eventos_area) || '{}') || {}; } catch (e) { return {}; } }
 const clientsOfArea = area => S.fin ? S.fin.clientes.filter(c => metaOf(c.id).area === area) : [];
 const aliasOf = c => ((c && c.id && metaOf(c.id).alias) || (c && c.nombre) || '').trim();
-const titleHas = (e, c) => { const a = aliasOf(c).toLowerCase(); return a.length >= 3 && (e.title || '').toLowerCase().includes(a); };
+// clientes que forman parte de otro (p. ej. Diego y Hugo dentro de Alberto Santamaría): sus sesiones y cobros cuentan en el cliente principal
+let _grp = { k: null, m: {}, p: {} };
+function grupos() {
+  const k = S.fin ? (S.fin.config && S.fin.config.clientes_meta || '') + '|' + (S.fin.clientes || []).length : '';
+  if (_grp.k !== k) { const m = cmeta(), ids = new Set((S.fin ? S.fin.clientes : []).map(c => c.id)), g = { k, m: {}, p: {} }; Object.keys(m).forEach(id => { const p = m[id] && m[id].pagador; if (p && p !== id && ids.has(id) && ids.has(p) && !(m[p] && m[p].pagador)) { (g.m[p] = g.m[p] || []).push(id); g.p[id] = p; } }); _grp = g; }
+  return _grp;
+}
+const pagadorDe = id => grupos().p[id] || '';
+const miembrosDe = id => grupos().m[id] || [];
+const _tt = (e, c) => { const a = aliasOf(c).toLowerCase(); return a.length >= 3 && (e.title || '').toLowerCase().includes(a); };
+const titleHas = (e, c) => { if (!c || !c.id) return _tt(e, c); if (pagadorDe(c.id)) return false; return _tt(e, c) || miembrosDe(c.id).some(id => _tt(e, S.fin.clientes.find(x => x.id === id))); };
 const isDemo = () => S.cfg.demo || !S.cfg.api;
 
 /* ---------- API ---------- */
@@ -1835,7 +1845,7 @@ function sheetCliente(id, back) {
   CC_back = !!back;
   const src = id ? S.fin.clientes.find(x => x.id === id) : null;
   CC = src ? Object.assign({}, src) : { nombre: '', nif: '', email: '', tarifa: '', color: CLIENT_COLORS[S.fin.clientes.length % CLIENT_COLORS.length], notas: '' };
-  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || ''; CC._psesion = m.psesion || ''; CC._sesmes = m.sesmes || ''; CC._pago = m.pago || ''; CC._metodo = m.metodo || '';
+  const m = src ? metaOf(src.id) : {}; CC._area = m.area || ''; CC._tipo = m.tipo || ''; CC._alias = m.alias || ''; CC._nbono = m.nbono || ''; CC._pbono = m.pbono || ''; CC._psuelta = m.psuelta || ''; CC._nfiscal = m.nfiscal || ''; CC._psesion = m.psesion || ''; CC._sesmes = m.sesmes || ''; CC._pago = m.pago || ''; CC._metodo = m.metodo || ''; CC._pagador = m.pagador || '';
   renderClienteSheet();
 }
 function ccContratoHTML() {
@@ -1882,6 +1892,8 @@ function renderClienteSheet() {
     <label class="f">Nombre fiscal<input class="in" value="${esc(CC._nfiscal)}" oninput="CC._nfiscal=this.value" placeholder="${esc(CC.nombre || 'Nombre o razón social')} (como saldrá en la factura)"></label>
     <div class="grid2"><label class="f">NIF / CIF<input class="in" value="${esc(CC.nif)}" oninput="CC.nif=this.value" placeholder="Para cuando factures"></label><label class="f">Email<input class="in" type="email" value="${esc(CC.email)}" oninput="CC.email=this.value"></label></div>
     <label class="f">Dirección (para la factura)<textarea class="in" oninput="CC.direccion=this.value" placeholder="Calle, CP, ciudad">${esc(CC.direccion || '')}</textarea></label>
+    ${(() => { const op = S.fin.clientes.filter(x => x.id !== CC.id && !pagadorDe(x.id) && !(CC.id && miembrosDe(CC.id).length)); const mi = CC.id ? miembrosDe(CC.id).map(id => clienteOf(id).nombre) : [];
+      return mi.length ? `<div class="card" style="background:var(--bg);font-size:13px">Incluye a: <b>${esc(mi.join(', '))}</b>. Sus sesiones y cobros cuentan aquí.</div>` : `<label class="f">¿Forma parte de otro cliente?<select class="in" onchange="CC._pagador=this.value;renderClienteSheet()" style="appearance:auto;-webkit-appearance:menulist"><option value="">No, es un cliente independiente</option>${op.sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))).map(x => `<option value="${esc(x.id)}" ${x.id === CC._pagador ? 'selected' : ''}>${esc(x.nombre)}</option>`).join('')}</select><span class="muted" style="font-size:12px">${CC._pagador ? 'Sus sesiones de la agenda y lo que pague cuentan dentro de ese cliente.' : 'Úsalo para clientes que paga otra persona o empresa (p. ej. Diego dentro de Alberto Santamaría).'}</span></label>`; })()}
     <div class="col" style="gap:6px"><span class="eyebrow">Tipo de cliente</span>
       <div class="opt" style="flex-direction:column;gap:6px;background:none;padding:0">${CLASES.map(([k, n, d]) => `<button type="button" class="${claseOf(CC) === k ? 'on' : ''}" style="text-align:left;height:auto;padding:10px 14px;border-radius:14px;${claseOf(CC) === k ? '' : 'background:var(--bg)'}" onclick="ccClase('${k}')"><b>${n}</b><br><span style="font-size:12px;font-weight:400">${d}</span></button>`).join('')}</div>
       <span class="muted" style="font-size:12px">${claseOf(CC) === 'empresa' ? 'Lo que apuntas es la base: la factura suma IVA y resta la retención de IRPF.' : claseOf(CC) === 'particular' ? 'Lo que apuntas es lo que te paga: la factura saca la base y el IVA de dentro.' : 'Sus cobros no salen como «sin facturar». Cuando uno de ellos deba facturarse, entras en el cobro y lo mandas a facturación.'}</span></div>
@@ -1900,7 +1912,7 @@ async function guardarCliente(ev) {
   try {
     const area = CC._area, tipo = CC._tipo, data = Object.assign({}, CC);
     if (num(CC._psesion) > 0 && Math.round(num(CC._sesmes)) > 0) data.tarifa = String(Math.round(num(CC._psesion) * Math.round(num(CC._sesmes)) * 100) / 100);
-    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim(), psesion: String(num(CC._psesion) || ''), sesmes: String(Math.round(num(CC._sesmes)) || ''), pago: claseOf(CC) === 'efectivo' && CC._pago === 'mes' ? 'mes' : '', metodo: claseOf(CC) === 'efectivo' && CC._metodo === 'bizum' ? 'bizum' : '' };
+    const extra = { alias: (CC._alias || '').trim(), nbono: String(num(CC._nbono) || ''), pbono: String(num(CC._pbono) || ''), psuelta: String(num(CC._psuelta) || ''), nfiscal: (CC._nfiscal || '').trim(), psesion: String(num(CC._psesion) || ''), sesmes: String(Math.round(num(CC._sesmes)) || ''), pago: claseOf(CC) === 'efectivo' && CC._pago === 'mes' ? 'mes' : '', metodo: claseOf(CC) === 'efectivo' && CC._metodo === 'bizum' ? 'bizum' : '', pagador: CC._pagador && CC._pagador !== CC.id ? CC._pagador : '' };
     Object.keys(data).forEach(k => { if (k[0] === '_') delete data[k]; });
     if (!data.id) data.id = uid();
     const prevArea = metaOf(data.id).area || '';
@@ -2005,7 +2017,7 @@ function viewAjustes() {
       <b>Clientes</b>
       <span class="muted" style="font-size:12px">Da de alta a tus clientes con sus datos fiscales. Al generar una factura ya salen predefinidos y rellenados.</span>
       <div class="col" style="gap:0">${L.length ? L.map((c, k) => { const fal = (c.factura || 'si') !== 'no' && (!c.nif || !c.direccion), kl = claseOf(c), cab = k === 0 || claseOf(L[k - 1]) !== kl ? `<div class="eyebrow" style="padding:12px 0 4px">${claseNom(kl)} · ${L.filter(x => claseOf(x) === kl).length}</div>` : '';
-        return cab + `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(metaOf(c.id).nfiscal || c.nombre)}</b><span class="muted" style="font-size:12px">${c.nif ? 'NIF/CIF ' + esc(c.nif) : 'Sin NIF'}${c.email ? ' · ' + esc(c.email) : ''}</span></span>${fal ? '<span class="badge b-warn">Faltan datos</span>' : ''}<span class="muted" style="font-size:18px">›</span></button>`; }).join('') : '<div class="empty" style="padding:14px">Aún no tienes clientes.</div>'}</div>
+        return cab + `<button class="li" onclick="sheetCliente('${c.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px">${esc(metaOf(c.id).nfiscal || c.nombre)}</b><span class="muted" style="font-size:12px">${pagadorDe(c.id) ? 'Forma parte de ' + esc(clienteOf(pagadorDe(c.id)).nombre) + ' · ' : miembrosDe(c.id).length ? 'Incluye a ' + esc(miembrosDe(c.id).map(id => clienteOf(id).nombre).join(', ')) + ' · ' : ''}${c.nif ? 'NIF/CIF ' + esc(c.nif) : 'Sin NIF'}${c.email ? ' · ' + esc(c.email) : ''}</span></span>${fal ? '<span class="badge b-warn">Faltan datos</span>' : ''}<span class="muted" style="font-size:18px">›</span></button>`; }).join('') : '<div class="empty" style="padding:14px">Aún no tienes clientes.</div>'}</div>
       <button class="btn dark" onclick="sheetCliente()">+ Añadir cliente</button>
     </div>`; })() : ''}
     <div class="card stack" style="gap:8px">

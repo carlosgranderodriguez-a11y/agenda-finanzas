@@ -74,3 +74,6 @@ Al generar o editar una factura, si cambias precios o conceptos, el cobro se act
 
 ## Cómo pagó cada cliente (v71)
 En «Efectivo y Bizum», toca el nombre de un cliente en «Sesiones de la agenda»: ves sus cobros del mes y eliges En mano o Bizum para cada uno (se guarda al momento), y si tiene sesiones sin cobrar puedes apuntarlas desde ahí.
+
+## Clientes que forman parte de otro (v72)
+En la ficha de un cliente, «¿Forma parte de otro cliente?» (p. ej. Diego Aguado y Hugo Llanos dentro de Alberto Santamaría). Sus sesiones de la agenda pasan a contar en el cliente principal, y lo que pague ese cliente las cubre. La ficha del principal muestra «Incluye a…» y la lista de clientes lo indica.
