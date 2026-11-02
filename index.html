@@ -182,7 +182,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v87';
+const VERSION = 'v88';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -673,6 +673,7 @@ function viewHoy() {
     <div class="row">
       <button class="iconbtn" aria-label="Semana anterior" onclick="S.day=addDays(S.day,-7);render()">${ICON.left}</button>
       <div class="grow"></div>
+      ${S.fin && allBonos().length ? `<button class="chip" style="background:var(--bg)" onclick="sheetRestarDia('${d}')">− Bono</button>` : ''}
       ${d !== todayStr() ? `<button class="chip" onclick="S.day=todayStr();afterRender._scrolled=false;render()">Hoy</button>` : ''}
       <button class="iconbtn" aria-label="Recargar" onclick="S._manualRefresh=true;loadWeek('${mon}',true)">${ICON.refresh}</button>
       <button class="iconbtn" aria-label="Semana siguiente" onclick="S.day=addDays(S.day,7);render()">${ICON.right}</button>
@@ -2886,6 +2887,7 @@ function sheetDiaMes(d) {
     <h1 style="font-size:24px">${DIAS[(dd.getDay() + 6) % 7]} ${dd.getDate()} de ${MESES[dd.getMonth()]}</h1>
     ${act.length ? `<span class="muted" style="font-size:13px">${ses(act.length)} · ${act.filter(s => s.est.k === 'ok').length} pagada${act.filter(s => s.est.k === 'ok').length === 1 ? '' : 's'}${act.filter(s => s.est.k === 'debe').length ? ' · <b style="color:var(--bad)">' + act.filter(s => s.est.k === 'debe').length + ' sin pagar</b>' : ''}</span>` : ''}
     <div class="card" style="padding:4px 14px;background:var(--bg)">${L.length ? L.map(sesRow).join('') : '<div class="empty">Sin sesiones de clientes este día.</div>'}</div>
+    ${allBonos().length ? `<button class="btn" style="background:var(--bg)" onclick="sheetRestarDia('${d}')">− Restar una sesión de un bono este día</button>` : ''}
     <button class="btn dark" onclick="S.day='${d}';go('hoy')">Abrir el día en la agenda</button>
   </div>`);
 }
@@ -3042,18 +3044,28 @@ function sheetFicha(cid) {
     ${st && st.devueltas.length ? `<div class="col" style="gap:6px"><span class="eyebrow">Sesiones devueltas (no cuentan)</span>${st.devueltas.map(s => `<div class="row" style="gap:8px;font-size:13px;background:var(--bg);border-radius:12px;padding:6px 6px 6px 12px"><span class="grow">${fmtS(s)}</span><button class="chip" style="background:var(--card);height:30px;font-size:12px" onclick="devolverSesion('${esc(s.id)}','${s.start}','${cid}',1)">Volver a contar</button></div>`).join('')}</div>` : ''}
   </div>`);
 }
-async function ajustarPrevias(ingId, li, delta, cid) {
+async function ajustarPrevias(ingId, li, delta, cid, diaFijo) {
   const i = ING().find(x => x.id === ingId); if (!i) return;
   let L = []; try { L = JSON.parse(i.lineas || '[]'); } catch (e) {}
   if (!L[li]) return;
   const n = num(L[li].bono), p = Math.max(0, Math.min(n, (num(L[li].previas) || 0) + delta));
   if (p === (num(L[li].previas) || 0)) { toast(delta > 0 ? 'El bono ya está completo' : 'No hay sesiones restadas'); return; }
   let dia = todayStr();
-  if (delta > 0) { const ini = L[li].desde || i.fecha || dia; dia = await ask('¿Qué día fue esa sesión? (una que no esté en la agenda)', 'Restar', { type: 'date', value: ini < dia ? ini : dia }); if (!dia) return; }
+  if (delta > 0 && diaFijo) dia = diaFijo;
+  else if (delta > 0) { const ini = L[li].desde || i.fecha || dia; dia = await ask('¿Qué día fue esa sesión? (una que no esté en la agenda)', 'Restar', { type: 'date', value: ini < dia ? ini : dia }); if (!dia) return; }
   L[li].previas = p; if (!p) delete L[li].previas;
   let F = Array.isArray(L[li].prevF) ? L[li].prevF.slice() : []; if (delta > 0) F.push(dia); else F.pop(); F = F.slice(-p || F.length).sort(); if (p && F.length) L[li].prevF = F; else delete L[li].prevF;
-  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), delta > 0 ? 'Sesión restada' : 'Sesión devuelta'); render(); sheetFicha(cid); }
+  try { await saveIng(Object.assign({}, i, { lineas: JSON.stringify(L) }), delta > 0 ? 'Sesión restada (' + fmtLong(dia).replace(/ \d{4}$/, '') + ')' : 'Sesión devuelta'); render(); if (diaFijo) closeSheet(); else sheetFicha(cid); }
   catch (e) { toast(e.message); }
+}
+// restar una sesión de un bono en un día concreto (sesión hecha fuera de la agenda)
+function sheetRestarDia(d) {
+  if (!S.fin) return;
+  const L = bonosResumen().filter(x => x.st.activo).sort((a, b) => a.c.nombre.localeCompare(b.c.nombre)), dd = parseD(d);
+  openSheet(`<div class="stack"><h1 style="font-size:22px">Restar sesión · ${DIAS[(dd.getDay() + 6) % 7]} ${dd.getDate()} ${MESES[dd.getMonth()]}</h1>
+    <span class="muted" style="font-size:13px">Elige el cliente: se descuenta 1 sesión de su bono con esta fecha. Úsalo para sesiones que no están en la agenda (las de la agenda ya se descuentan solas).</span>
+    ${L.length ? `<div class="card" style="padding:4px 14px;background:var(--bg)">${L.map(x => { const a = x.st.activo; return `<button class="li" onclick="ajustarPrevias('${a.ingId}',${a.li},1,'${x.id}','${d}')"><span class="av" style="background:${x.c.color || '#6B6E75'}22;color:${x.c.color || '#6B6E75'}">${esc(initials(x.c.nombre))}</span><span class="col grow" style="gap:2px;text-align:left"><b style="font-size:14px">${esc(x.c.nombre)}</b><span class="muted" style="font-size:12px">Bono de ${a.n} · quedan ${x.st.quedan}${a.cobrado ? '' : ' · pendiente de pago'}</span></span><b style="font-size:13px">− 1</b></button>`; }).join('')}</div>` : '<div class="empty">Ningún cliente tiene un bono activo.</div>'}
+  </div>`);
 }
 // ---- registro de sesiones de cada bono ----
 function sesManual(b) { const u = Math.max(0, b.previas - b.prevF.length), out = []; for (let k = 0; k < b.previas; k++) out.push(k < u ? '' : (b.prevF[k - u] || '')); return out; }
