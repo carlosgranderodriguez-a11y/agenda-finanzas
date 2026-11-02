@@ -80,3 +80,6 @@ En la ficha de un cliente, «¿Forma parte de otro cliente?» (p. ej. Diego Agua
 
 ## Cobrar sesiones en un solo paso (v73)
 Desde una sesión de la agenda, «Cobrar sesiones» pregunta lo mínimo: por cuántas sesiones es el pago (1, el bono, el doble u otro número; el importe se calcula solo), cómo pagó (En mano · Bizum · Transferencia · Aún no) y desde qué día. En mano y Bizum van a «Efectivo y Bizum» sin facturar; transferencia se puede facturar. Concepto y sesiones previas quedan en «Más opciones». Los cobros por Bizum de cualquier cliente salen ahora también en «Efectivo y Bizum».
+
+## Fecha de la factura y mes del cobro (v74)
+Los resúmenes cuentan cada cobro en el mes de su fecha. Si al crear o editar una factura su fecha cae en otro mes que el cobro (p. ej. la pusiste el 1/11 y la corriges al 30/10), la app pregunta si pasar el cobro a ese mes.

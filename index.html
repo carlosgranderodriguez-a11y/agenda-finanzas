@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v73';
+const VERSION = 'v74';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2416,8 +2416,14 @@ async function generarFactura(ev) {
     // el resto de cobros de esta factura quedan marcados con el mismo número (sin repetir importes para el gestor)
     for (const id of (FA.ingIds || []).slice(1)) { const x = ING().find(y => y.id === id); if (!x) continue; Object.assign(x, { facturado: 'si', num_factura: r.numero, factura_url: r.url || '', factura_datos: JSON.stringify({ numero: r.numero, ref: FA.ingId }) }, mover ? { cliente_id: FA.cid } : {}); api('saveIngreso', { data: x }).catch(() => {}); }
     const sync = !(FA.ingIds || []).slice(1).length && syncCobroConFactura(i, d, FA);
+    // el cobro cuenta en el mes de su fecha: si la factura es de otro mes (p. ej. la pusiste el 1/11 y la corriges al 30/10), ofrece moverlo
+    let movF = false;
+    if (i.fecha && d.fecha && i.fecha.slice(0, 7) !== d.fecha.slice(0, 7)) {
+      const mn = f => MESES[+f.slice(5, 7) - 1] + ' ' + f.slice(0, 4);
+      if (await ask('El cobro está apuntado en ' + mn(i.fecha) + ' y la factura es de ' + mn(d.fecha) + '. ¿Pasar el cobro a ' + mn(d.fecha) + ' para que cuente en ese mes?', 'Sí, pasarlo')) { i.fecha = d.fecha; movF = true; }
+    }
     if (isDemo()) await api('saveIngreso', { data: i });
-    else if (mover || sync) await api('saveIngreso', { data: i });
+    else if (mover || sync || movF) await api('saveIngreso', { data: i });
     if (!isDemo() && !FA.edit) { const n = parseInt(String(r.numero).split('-').pop(), 10); if (!isNaN(n)) S.fin.config.siguiente_numero = String(n + 1); }
     LS.set('af_fin_cache', S.fin); render();
     openSheet(`<div class="stack" style="align-items:stretch;text-align:center"><h1 style="font-size:24px">Factura ${esc(r.numero)} ${FA.edit ? 'actualizada' : 'creada'} ✓</h1><span class="muted">${esc(c.nombre)} · ${eurRaw(faCalc().total, true)}</span>
