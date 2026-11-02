@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v77';
+const VERSION = 'v78';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1073,11 +1073,12 @@ function viewEfectivo() {
     <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button><h1 style="font-size:28px" class="grow">Efectivo y Bizum</h1></div>
     <div class="row between"><button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button><h1 style="font-size:22px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()}</h1><button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button></div>
     <div class="hero"><span style="font-size:12px;color:var(--dmuted);font-weight:600">Cobrado sin factura en mano o Bizum</span><span class="big" style="font-size:40px">${eur(sumI(cob))}</span>
-      <div class="grid3"><div class="mini"><span>Cobros</span><span>${cob.length}</span></div><div class="mini"><span>A facturación</span><span style="color:#F0B95B">${eur0(sumI(fact))}</span></div><div class="mini"><span>Sin factura</span><span style="color:#7FD1AE">${eur0(sumI(sin))}</span></div></div></div>
+      <div class="grid3"><div class="mini"><span>En mano</span><span style="color:#7FD1AE">${eur0(sumI(cob.filter(i => i.metodo !== 'bizum')))}</span></div><div class="mini"><span>Bizum</span><span style="color:#9FB4FF">${eur0(sumI(cob.filter(i => i.metodo === 'bizum')))}</span></div><div class="mini"><span>A facturación</span><span style="color:#F0B95B">${eur0(sumI(fact))}</span></div></div></div>
     ${deb.length ? `<span class="eyebrow">Sin cobrar</span><div class="card" style="padding:4px 14px">${deb.map(fila).join('')}</div>` : ''}
     ${sesEfectivoHTML(ym)}
-    <span class="eyebrow">Cobros apuntados</span>
-    <div class="card" style="padding:4px 14px">${cob.length ? cob.map(fila).join('') : '<div class="empty" style="padding:14px">No hay cobros en efectivo este mes.</div>'}</div>
+    ${(() => { if (!cob.length) return '<span class="eyebrow">Cobros apuntados</span><div class="card"><div class="empty" style="padding:14px">No hay cobros en mano ni por Bizum este mes.</div></div>';
+      const grp = [['En mano', cob.filter(i => i.metodo !== 'bizum')], ['Bizum', cob.filter(i => i.metodo === 'bizum')]].filter(g => g[1].length);
+      return grp.map(([n, L]) => `<div class="row between"><span class="eyebrow">${n} · ${L.length} ${L.length === 1 ? 'cobro' : 'cobros'}</span><b style="font-size:14px">${eur(sumI(L))}</b></div><div class="card" style="padding:4px 14px">${L.map(fila).join('')}</div>`).join(''); })()}
     <span class="muted" style="font-size:12px">Los clientes de tipo «Efectivo» se apuntan ya cobrados en mano. Toca la etiqueta de un cobro para mandarlo a facturación o dejarlo sin factura.</span>
   </div>`;
 }
@@ -2688,6 +2689,8 @@ function trTot() { const e = $('#trImp'); if (e) e.value = trImp(); }
 async function guardarTramo(ev) {
   ev.preventDefault();
   const imp = trImp(), n = Math.max(0, Math.round(num(TR.n))); if (!imp) { toast('Pon el importe'); return; }
+  const dup = ING().find(i => i.cliente_id === TR.cid && lineasOf(i).some(l => l.hasta && l.hasta >= TR.hasta));
+  if (dup && !await ask('Ya tienes apuntado un cobro de ' + eur(num(dup.importe)) + ' que cubre hasta el ' + fmtLong(lineasOf(dup).find(l => l.hasta).hasta) + '. Si lo apuntas otra vez, contará doble. ¿Apuntar otro cobro igualmente?', 'Sí, es otro pago')) return;
   const c = clienteOf(TR.cid), m = metaOf(TR.cid), btn = $('#trBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   const det = n ? n + (n === 1 ? ' sesión' : ' sesiones') + (num(TR.p) ? ' × ' + String(num(TR.p)).replace('.', ',') + ' €' : '') : 'Sesiones hasta el ' + TR.hasta;
   const tipo = m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]);
