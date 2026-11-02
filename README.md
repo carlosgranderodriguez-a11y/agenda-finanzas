@@ -97,3 +97,9 @@ Lo que no cubre nada sale «Sin pagar» (ya pasó) o «Por cobrar» (futura). An
 
 Para cobrar siempre se usa la misma hoja («Cobrar sesiones»): nº de sesiones, cómo pagó (En mano · Bizum · Transferencia · Aún no) e importe. Desde Efectivo y Bizum o la ficha del mes, las sesiones sin pagar ya vienen contadas. Avisa si apuntas un cobro igual a otro ya apuntado.
 Al crear un evento con cliente, «¿Te paga ahora sesiones?» (No · En mano · Bizum · Transferencia · Me debe) apunta el pago con la misma regla, empezando ese día. El aviso del cliente muestra «Pagado hasta el …» en vez de «Bono agotado» cuando paga por fechas (v81).
+
+## Citas que no llegan a Google: sin duplicados (v82)
+Si una cita nueva no se puede guardar al momento (sin cobertura o Google tarda), queda en el móvil marcada «⏳ Sin guardar» y se envía sola después. Antes, al cerrar la app desaparecía de la vista y, si la volvías a crear (a veces a otra hora), luego salían las dos. Ahora:
+- sigue visible y marcada aunque cierres la app;
+- en su ficha puedes «Reintentar» o «Quitar» (ya no se guardará);
+- si creas otra cita del mismo cliente ese día mientras la primera está pendiente, pregunta si sustituirla.

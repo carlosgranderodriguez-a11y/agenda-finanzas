@@ -180,7 +180,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v81';
+const VERSION = 'v82';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -269,6 +269,15 @@ const S = {
 };
 Object.assign(S.agenda, LS.get('af_agenda_cache', {}));
 Object.keys(S.agenda).forEach(k => { if (Array.isArray(S.agenda[k])) S.agenda[k] = S.agenda[k].filter(e => e && !e._tmp); });
+// citas creadas que aún no han llegado a Google (siguen en la cola): se muestran marcadas para no volver a crearlas
+function tmpsDeCola() {
+  (LS.get('af_queue', []) || []).filter(x => x.action === 'createEvent' && x.params && x.params.data).forEach(x => {
+    const d = x.params.data, mon = mondayOf(d.start.slice(0, 10)), st = d.start.length === 16 ? d.start + ':00' : d.start;
+    const A = S.agenda[mon] || (S.agenda[mon] = Object.assign([], { _stale: true }));
+    if (!A.some(e => e && (e.rid === d.rid || (e.title === d.title && e.start === st)))) A.push({ id: 'tmp' + (d.rid || uid()), rid: d.rid, cal: 'Pendiente de guardar', calId: '', title: d.title, start: st, end: d.end.length === 16 ? d.end + ':00' : d.end, allDay: false, location: d.location || '', cat: d.cat, _tmp: true });
+  });
+}
+try { tmpsDeCola(); } catch (e) {}
 const catOf = id => S.cats.find(c => c.id === id) || OTRO;
 function visibleCats(list) { const off = LS.get('af_areas_off', []); return list.filter(k => !off.includes(k.id)); }
 const AREA_PALETTE = [['#9C2F5B', '#F6DCE7'], ['#1F6E78', '#D3EBEE'], ['#5B6B12', '#E6ECCB'], ['#3B4A5E', '#DDE3EA'], ['#8A6A00', '#F4EABF'], ['#1B5E48', '#D6EDE2'], ['#2F3F9E', '#DCE1F6'], ['#A8471A', '#F7DDCC'], ['#5E3F82', '#E6DCF1'], ['#7A4E00', '#F3E4BF']];
@@ -656,7 +665,7 @@ function timeline(d, evs) {
     const top = (it.s - h0) * PX + 1, hgt = Math.max((it.en - it.s) * PX - 3, 22);
     const w = 100 / it.ncol, left = it.col * w;
     const short = hgt < 38 || it.ncol > 2, mid = !short && hgt < 60;
-    const nombreArea = it.e.cat === 'otro' ? 'Sin área' : c.nombre;
+    const nombreArea = (it.e._tmp ? '⏳ Sin guardar · ' : '') + (it.e.cat === 'otro' ? 'Sin área' : c.nombre);
     const time = hm(it.e.start) + '–' + hm(it.e.end);
     html += `<button class="ev ${short ? 'short' : ''}" style="top:${top}px;height:${hgt}px;left:calc(${left}% + ${it.col ? 2 : 0}px);width:calc(${w}% - ${it.ncol > 1 ? 2 : 0}px);background:${c.bg};color:${c.fg}" data-id="${esc(it.e.id)}" data-start="${it.e.start}" onclick="if(Date.now()-(S._noClick||0)>600)sheetDetalle('${esc(it.e.id)}','${it.e.start}')">` +
       (short ? `<span class="t"><i style="display:inline-block;width:7px;height:7px;border-radius:4px;background:${c.fg};margin-right:6px;vertical-align:1px"></i>${esc(it.e.title)}</span>${it.ncol < 3 ? `<span style="font-size:11px;font-weight:600;flex:none;margin-left:6px">${hm(it.e.start)}</span>` : ''}`
@@ -691,6 +700,7 @@ function sheetDetalle(id, start) {
       ${e.location ? `<span class="muted">${esc(e.location)}</span>` : ''}
       <span class="muted" style="font-size:12px">Calendario: ${esc(e.cal)}</span>
     </div>
+    ${e._tmp ? `<div class="card stack" style="gap:8px;background:var(--warnbg)"><b style="color:var(--warn);font-size:14px">Esta cita aún no está en Google Calendar</b><span class="muted" style="font-size:12px">Se guardará sola cuando haya conexión. Si la has vuelto a crear a otra hora, quita esta para que no salga repetida.</span><div class="grid2"><button class="btn" style="background:var(--card);height:44px" onclick="flushQueue().then(()=>{markStale();loadWeek(mondayOf('${e.start.slice(0, 10)}'),true);closeSheet()})">Reintentar</button><button class="btn danger" style="height:44px" onclick="quitarPendiente('${esc(e.id)}','${e.start}')">Quitar</button></div></div>` : ''}
     ${bonoEnEvento(e)}
     ${puntualEnEvento(e)}
     <div class="row">
@@ -841,6 +851,7 @@ async function venderBonoEvento(b) {
 async function guardarEventoBg(data, tmp, mon) {
   try {
     const r = await api('createEvent', { data });
+    if (r && String(r.id || '').indexOf('tmp') === 0) tmp.cal = 'Pendiente de guardar';
     if (r && r.id && String(r.id).indexOf('tmp') !== 0) {
       tmp.id = r.id; tmp.cal = r.cal || ''; delete tmp._tmp;
       // recuerda el área elegida para este evento (y toda su serie si se repite)
@@ -921,6 +932,12 @@ function pickCat(b, keepCli) {
   b.classList.add('on'); b.style.background = ''; b.style.color = '';
   if (!keepCli) { const cp = $('#clipick'); if (cp) cp.innerHTML = cliChips(b.dataset.cat); }
 }
+function quitarPendiente(id, start) {
+  const mon = mondayOf(start.slice(0, 10)), e = (S.agenda[mon] || []).find(x => x.id === id && x._tmp); if (!e) { closeSheet(); return; }
+  LS.set('af_queue', queue().filter(x => !(x.action === 'createEvent' && x.params && x.params.data && ((e.rid && x.params.data.rid === e.rid) || (x.params.data.title === e.title && (x.params.data.start.length === 16 ? x.params.data.start + ':00' : x.params.data.start) === e.start)))));
+  S.agenda[mon] = S.agenda[mon].filter(x => x !== e); closeSheet(); render(); toast('Cita quitada: no se guardará');
+}
+let tmpRid = '';
 async function crearEvento(ev) {
   ev.preventDefault();
   const f = ev.target, btn = f.querySelector('button[type=submit]');
@@ -938,14 +955,18 @@ async function crearEvento(ev) {
     if (!imp) { toast('Pon el importe'); return; }
     bono = { n, imp, met, cobrado: bv === 'no' ? 'no' : 'si', cid: cli.id, desde: date };
   }
+  // ¿ya hay una cita de este cliente ese día esperando a guardarse? (si la has rehecho a otra hora, se sustituye)
+  const mon0 = mondayOf(date), prev = (S.agenda[mon0] || []).find(x => x && x._tmp && x.start.slice(0, 10) === date && (cli ? titleHas(x, cli) : x.title === title));
+  if (prev && await ask('Ya tienes «' + prev.title + '» el ' + fmtLong(date) + ' a las ' + hm(prev.start) + ' esperando a guardarse en Google. ¿Sustituirla por esta de las ' + f.start.value + '? (Si no, quedarán las dos.)', 'Sí, sustituir')) quitarPendiente(prev.id, prev.start);
   btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
   try {
     const cada = +((document.querySelector('#repOpt button.on') || {}).dataset || {}).v || 0;
     const repetir = cada ? { cada, hasta: f.sinfin.checked ? '' : f.hasta.value } : null;
     if (repetir && repetir.hasta && repetir.hasta < date) { toast('La fecha «hasta» es anterior al evento'); btn.disabled = false; btn.textContent = 'Guardar en Google Calendar'; return; }
     const data = { title, cat, start: date + 'T' + f.start.value, end: date + 'T' + f.end.value, location: f.location.value.trim(), repetir, rid: uid() };
+    tmpRid = data.rid;
     // 1) aparece al instante en la agenda con su área; 2) se guarda en Google Calendar por detrás
-    const mon = mondayOf(date), tmp = { id: 'tmp' + uid(), cal: 'Guardando…', calId: '', title, start: data.start + ':00', end: data.end + ':00', allDay: false, location: data.location, cat, _tmp: true };
+    const mon = mondayOf(date), tmp = { id: 'tmp' + uid(), rid: tmpRid, cal: 'Guardando…', calId: '', title, start: data.start + ':00', end: data.end + ':00', allDay: false, location: data.location, cat, _tmp: true };
     if (!S.agenda[mon]) S.agenda[mon] = [];
     S.agenda[mon].push(tmp); S.agenda[mon].sort((a, b) => a.start < b.start ? -1 : 1);
     S.tmpArea = S.tmpArea || {}; S.tmpArea[tmp.id] = cat;
