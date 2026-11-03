@@ -249,7 +249,7 @@ function inAppHTML(d) {
   <div class="card"><div class="row"><b>Esta semana</b><span class="m" style="color:#5C5F66">${hstr(Object.values(wh).reduce((a, b) => a + b, 0))} h</span></div>${week}<div class="leg">${leg}</div></div>
   <div class="card fin" ${true ? 'onclick="document.querySelectorAll(\'[data-v]\').forEach(e=>{const t=e.textContent;e.textContent=e.dataset.v;e.dataset.v=t})"' : ''}><div class="m">${MESL[now.getMonth()]}${' · toca para ver'}</div><div class="big" data-v="${eurVis(d.mes.ingresos || 0)}">•••• €</div><div class="m">${d.mes.cobrado ? 'cobrado este mes' : 'ingresos del mes'}</div>
     <div style="margin-top:10px;color:#F0C866;font-weight:700;font-size:13px">Te deben <span data-v="${eurVis(d.mes.pendiente || 0)}">•••• €</span></div></div>
-  <a class="btn" href="${APP_URL}">Abrir la app completa</a>
+  <div class="m" style="color:#5C5F66;text-align:center;margin-top:18px">Para apuntar o cambiar algo, abre la app desde su icono en la pantalla de inicio.</div>
   </body></html>`
 }
 
@@ -292,6 +292,7 @@ async function run() {
     // abierto tocando el widget: se enseña al instante lo guardado y, si es viejo, se refresca por detrás sin recargar la vista
     const c = readCache(), fresh = c && c._age < 10
     const wv = new WebView()
+    wv.shouldAllowRequest = req => !/^https?:/i.test(req.url || '')   // no abrir la app dentro de Scriptable (tendría datos viejos)
     await wv.loadHTML(c ? inAppHTML(Object.assign({}, c, { _offline: false, _loading: !fresh })) : loadingHTML())
     let t0 = Date.now()
     // si iOS cierra la vista nada más abrirse (pasa al arrancar Scriptable en frío), se vuelve a abrir una vez
