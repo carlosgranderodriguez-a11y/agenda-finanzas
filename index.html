@@ -86,7 +86,7 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .tl .hr{position:absolute;left:46px;right:0;border-top:1px solid var(--line)}
 .tl .hl{position:absolute;left:0;width:40px;font-size:11px;color:var(--muted);transform:translateY(-7px)}
 .tl .lane{position:absolute;left:46px;right:0;top:0;bottom:0}
-.clirow{width:100%;justify-content:flex-start;gap:10px;height:auto;min-height:42px;padding:6px 10px;border-radius:12px}
+.clirow{display:flex;flex-direction:row;align-items:center;text-align:left;width:100%;justify-content:flex-start;gap:10px;height:auto;min-height:42px;padding:6px 10px;border-radius:12px}
 .sala{position:absolute;left:0;right:0;border:0;border-radius:12px;background:repeating-linear-gradient(135deg,#E6E3DC 0 8px,#EFECE6 8px 16px);color:#6B6E75;font-size:12px;font-weight:700;text-align:left;padding:6px 10px;display:flex;align-items:flex-start;overflow:hidden}
 .wg .sala{border-radius:6px;padding:0;font-size:0}
 .ev.drag{z-index:5;box-shadow:0 10px 24px #0003;transform:scale(1.03);opacity:.95}
@@ -183,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v89';
+const VERSION = 'v90';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
