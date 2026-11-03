@@ -117,7 +117,7 @@ En el detalle de un cobro de bono o sesiones se puede cambiar «Cubre N sesiones
 Ajustes → «Bonos vendidos»: lista de clientes con bonos; tocando uno se abre su ficha. En «Historial de bonos y sueltas» cada bono muestra desde qué día cuenta, si está pagado o pendiente y marca «¿Repetido?» si hay otro igual (mismas sesiones, precio y día de inicio). Al abrir un bono: cambiar «Empieza a contar el día», «Ya me lo ha pagado» y la papelera para borrarlo. Los bonos se gastan en orden de su día de inicio.
 
 ## Widget al día (widget.js)
-El widget pide también las finanzas: «cobrado este mes» y «te deben» salen igual que en la app, las horas de sala ocupada se ven en gris en la barra del día y de la semana, los eventos toman el color del área del cliente y abajo pone la hora de la última actualización («act. 17:10»). No hace falta tocar el Apps Script. El script de Scriptable se actualiza solo la próxima vez que lo abras tocando el widget.
+Al abrirlo tocándolo, el widget pide también las finanzas (en la pantalla de inicio solo pide la agenda, que es rápida, y usa las finanzas guardadas): «cobrado este mes» y «te deben» salen igual que en la app, las horas de sala ocupada se ven en gris en la barra del día y de la semana, los eventos toman el color del área del cliente y abajo pone la hora de la última actualización («act. 17:10»). No hace falta tocar el Apps Script. El script de Scriptable se actualiza solo la próxima vez que lo abras tocando el widget.
 
 ## Clientes en lista al crear una cita (v89)
 En «Nuevo evento», los clientes salen en una lista con buscador: primero los del área elegida y luego todos, con sus iniciales. Escribe parte del nombre para filtrar. «+ Nuevo» crea uno sin salir de la cita y lo deja elegido.

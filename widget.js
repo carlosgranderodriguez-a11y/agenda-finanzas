@@ -40,10 +40,20 @@ async function getJSON(action, timeout) {
   if (!j.ok) throw new Error(j.error)
   return j.data
 }
-async function fetchData(timeout) {
-  // agenda de la semana (widget) + finanzas: así el dinero y las horas de sala ocupada salen igual que en la app
-  const [d, fin] = await Promise.all([getJSON('widget', timeout), getJSON('finanzas', timeout).catch(() => null)])
-  if (fin) enriquecer(d, fin)
+// las finanzas se guardan aparte (resumidas): el widget de la pantalla de inicio solo pide la agenda, que es rápida;
+// las finanzas se refrescan al abrir el widget tocándolo. Así iOS no corta el widget por tardar demasiado.
+const FINC = FM.joinPath(FM.documentsDirectory(), 'agenda-finanzas-fin.json')
+function readFin() { try { return FM.fileExists(FINC) ? JSON.parse(FM.readString(FINC)) : null } catch (e) { return null } }
+function saveFin(f) {
+  const m = { _at: Date.now(), ingresos: (f.ingresos || []).map(i => ({ fecha: i.fecha, cobrado: i.cobrado, importe: i.importe })), clientes: (f.clientes || []).map(c => ({ id: c.id, nombre: c.nombre })), config: { bloqueos: (f.config || {}).bloqueos || '', clientes_meta: (f.config || {}).clientes_meta || '' } }
+  try { FM.writeString(FINC, JSON.stringify(m)) } catch (e) {}
+  return m
+}
+async function fetchData(timeout, conFin) {
+  const d = await getJSON('widget', timeout)
+  let fin = readFin()
+  if (conFin) { try { fin = saveFin(await getJSON('finanzas', timeout)) } catch (e) {} }
+  if (fin) { try { enriquecer(d, fin) } catch (e) {} }
   d._savedAt = new Date().toISOString(); FM.writeString(CACHE, JSON.stringify(d))
   return d
 }
@@ -290,7 +300,7 @@ async function run() {
     if (!fresh) {
       try {
         if (!API || !TOKEN) throw new Error('Falta tu clave. Abre la app → Ajustes → Copiar código del widget (con la app ya conectada) y pégalo aquí de nuevo.')
-        const t1 = Date.now(), d = await fetchData(25)
+        const t1 = Date.now(), d = await fetchData(25, true)
         d._secs = Math.round((Date.now() - t1) / 1000)
         await swap(inAppHTML(d))
       } catch (e) {
