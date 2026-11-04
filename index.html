@@ -183,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v90';
+const VERSION = 'v91';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -878,9 +878,14 @@ function cliChips(area) {
   if (!S.fin) return '<span class="muted" style="font-size:12px">Cargando clientes…</span>';
   const byN = (a, b) => String(a.nombre).localeCompare(String(b.nombre));
   const mine = clientsOfArea(area).slice().sort(byN), rest = S.fin.clientes.filter(c => !mine.includes(c)).sort(byN);
-  const row = c => `<button type="button" class="chip clirow" data-cid="${c.id}" data-n="${esc(String(c.nombre + ' ' + aliasOf(c)).toLowerCase())}" style="background:var(--bg)" onclick="pickCli(this)"><span class="av" style="width:28px;height:28px;font-size:11px;flex:none;background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="grow" style="text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.nombre)}</span></button>`;
+  const row = cliRow;
+  return cliLista(mine, rest);
+}
+function cliRow(c) { return `<button type="button" class="chip clirow" data-cid="${c.id}" data-n="${esc(String(c.nombre + ' ' + aliasOf(c)).toLowerCase())}" style="background:var(--bg)" onclick="pickCli(this)"><span class="av" style="width:28px;height:28px;font-size:11px;flex:none;background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="grow" style="text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.nombre)}</span></button>`; }
+function cliLista(mine, rest) {
+  const row = cliRow;
   const cab = t => `<span class="eyebrow clicab" style="padding:6px 2px 2px">${t}</span>`;
-  return `<div class="row" style="gap:8px;width:100%"><input class="in" id="cliBus" placeholder="Buscar cliente…" autocomplete="off" oninput="filtraCli(this.value)" style="height:40px;background:var(--bg)"><button type="button" class="chip" style="background:var(--dark);color:#fff;flex:none;height:40px" onclick="nuevoCliEvento()">+ Nuevo</button></div>
+  return `<div class="row" style="gap:8px;width:100%"><input class="in" id="cliBus" onkeydown="if(event.key==='Enter'){event.preventDefault();const b=[...document.querySelectorAll('#cliLista .clirow')].find(x=>x.style.display!=='none');if(b&&!b.classList.contains('on'))pickCli(b)}" placeholder="Buscar cliente…" autocomplete="off" oninput="filtraCli(this.value)" style="height:40px;background:var(--bg)"><button type="button" class="chip" style="background:var(--dark);color:#fff;flex:none;height:40px" onclick="nuevoCliEvento()">+ Nuevo</button></div>
     <div id="cliLista" class="col" style="gap:4px;width:100%;max-height:260px;overflow-y:auto;-webkit-overflow-scrolling:touch">${mine.length ? cab('De esta área') + mine.map(row).join('') : ''}${rest.length ? cab(mine.length ? 'Todos los clientes' : 'Clientes') + rest.map(row).join('') : ''}${!S.fin.clientes.length ? '<span class="muted" style="font-size:12px">Aún no tienes clientes: crea uno con «+ Nuevo».</span>' : ''}</div>`;
 }
 function filtraCli(q) {
@@ -896,10 +901,10 @@ function nuevoCliEvento() {
   const ci = $('#cliInfo'); if (!ci) return;
   ci.innerHTML = `<div class="stack" style="gap:8px;margin-top:6px;background:var(--bg);border-radius:14px;padding:10px">
     <b style="font-size:14px">Cliente nuevo</b>
-    <input class="in" id="nceNom" placeholder="Nombre y apellidos" value="${esc(NCE.nombre)}" oninput="NCE.nombre=this.value" style="background:var(--card)" autocomplete="off">
-    <input class="in" id="nceAli" placeholder="Cómo aparece en la agenda (p. ej. Tomas) · opcional" value="${esc(NCE.alias)}" oninput="NCE.alias=this.value" style="background:var(--card)" autocomplete="off">
+    <input class="in" id="nceNom" onkeydown="if(event.key==='Enter'){event.preventDefault();crearCliEvento()}" placeholder="Nombre y apellidos" value="${esc(NCE.nombre)}" oninput="NCE.nombre=this.value" style="background:var(--card)" autocomplete="off">
+    <input class="in" id="nceAli" onkeydown="if(event.key==='Enter'){event.preventDefault();crearCliEvento()}" placeholder="Cómo aparece en la agenda (p. ej. Tomas) · opcional" value="${esc(NCE.alias)}" oninput="NCE.alias=this.value" style="background:var(--card)" autocomplete="off">
     <div class="opt" style="flex-wrap:wrap">${[['efectivo', 'En mano'], ['bizum', 'Bizum'], ['particular', 'Con factura'], ['empresa', 'Empresa']].map(([k, l]) => `<button type="button" class="${NCE.forma === k ? 'on' : ''}" onclick="NCE.forma='${k}';nuevoCliEvento()">${l}</button>`).join('')}</div>
-    <input class="in" id="ncePre" inputmode="decimal" placeholder="Precio por sesión (€)" value="${esc(NCE.precio)}" oninput="NCE.precio=this.value" style="background:var(--card)">
+    <input class="in" id="ncePre" onkeydown="if(event.key==='Enter'){event.preventDefault();crearCliEvento()}" inputmode="decimal" placeholder="Precio por sesión (€)" value="${esc(NCE.precio)}" oninput="NCE.precio=this.value" style="background:var(--card)">
     <div class="grid2"><button type="button" class="btn" style="background:var(--card);height:44px" onclick="NCE=null;$('#cliInfo').innerHTML=''">Cancelar</button><button type="button" class="btn dark" style="height:44px" id="nceBtn" onclick="crearCliEvento()">Crear y elegir</button></div>
   </div>`;
   setTimeout(() => { const n = $('#nceNom'); if (n && !NCE.nombre) n.focus(); }, 50);
@@ -920,8 +925,9 @@ async function crearCliEvento() {
       toast('Cliente ' + nom + ' creado');
     }
     NCE = null;
-    const li = $('#cliLista'); if (li) { let b = li.querySelector('.clirow[data-cid="' + c.id + '"]'); if (!b) { const t = document.createElement('div'); t.innerHTML = cliChips('').match(new RegExp('<button type="button" class="chip clirow" data-cid="' + c.id + '"[\\s\\S]*?</button>'))[0]; b = t.firstChild; li.insertBefore(b, li.firstChild); } const bus = $('#cliBus'); if (bus) { bus.value = ''; filtraCli(''); } pickCli(b); b.scrollIntoView && b.scrollIntoView({ block: 'nearest' }); }
-  } catch (e) { toast(e.message); if (btn) { btn.disabled = false; btn.textContent = 'Crear y elegir'; } }
+    const li = $('#cliLista'); if (li) { let b = li.querySelector('.clirow[data-cid="' + c.id + '"]'); if (!b) { const t = document.createElement('div'); t.innerHTML = cliRow(c); b = t.firstElementChild; li.insertBefore(b, li.firstChild); } const bus = $('#cliBus'); if (bus) { bus.value = ''; filtraCli(''); } pickCli(b); b.scrollIntoView && b.scrollIntoView({ block: 'nearest' }); }
+    return c;
+  } catch (e) { toast('No se pudo crear el cliente: ' + e.message); if (btn) { btn.disabled = false; btn.textContent = 'Crear y elegir'; } return null; }
 }
 function pickCli(b) {
   const on = b.classList.contains('on');
@@ -1040,6 +1046,7 @@ async function crearEvento(ev) {
   const f = ev.target, btn = f.querySelector('button[type=submit]');
   const cat = (document.querySelector('#catpick .chip.on') || {}).dataset?.cat || 'otro';
   const date = f.date.value;
+  if (NCE && (NCE.nombre || '').trim() && !document.querySelector('#clipick .chip.on')) { if (!await crearCliEvento()) return; }
   const cb = document.querySelector('#clipick .chip.on'); const cli = cb ? clienteOf(cb.dataset.cid) : null;
   let title = f.title.value.trim();
   if (cli) { if (!title) title = cli.nombre; else if (!title.toLowerCase().includes(cli.nombre.trim().toLowerCase())) title += ' · ' + cli.nombre; }
