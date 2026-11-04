@@ -183,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v91';
+const VERSION = 'v92';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -938,6 +938,7 @@ function pickCli(b) {
     const cb = a && document.querySelector('#catpick .chip[data-cat="' + a + '"]'); if (cb && !cb.classList.contains('on')) pickCat(cb, true);
     bonoPrefill();
   }
+  if (!on && PL && $('#plBtn')) { PL.cid = b.dataset.cid; PL.imp = String(lastPart(PL.cid, tipoPlan()) || num(clienteOf(PL.cid).tarifa) || PL.imp || ''); renderPlan(); return; }
   const ci = $('#cliInfo'), cid = b.dataset.cid; if (ci) ci.innerHTML = on ? '' : cliEstadoHTML(cid);
   if (!on && S.fin && !S.bonoRange) loadBonoEv().then(() => { const c2 = $('#cliInfo'), sel = document.querySelector('#clipick .chip.on'); if (c2 && sel && sel.dataset.cid === cid) c2.innerHTML = cliEstadoHTML(cid); });
 }
@@ -1316,7 +1317,7 @@ function sheetApuntar() {
   openSheet(`<div class="stack" style="gap:10px"><h1 style="font-size:24px">¿Qué quieres apuntar?</h1>
     ${op('🎟️', 'Bono de sesiones', 'Un cliente compra un bono (4 sesiones). Pagado o pendiente.', "sheetElegirCli()")}
     ${op('🏋️', 'Sesión suelta', 'Un entrenamiento puntual que se paga aparte.', "sheetPuntual({})")}
-    ${op('📋', 'Planificaciones del mes', 'Apunta de golpe a todos los atletas que planificas este mes.', `S.tipoSel='${esc(plan).replace(/'/g, '')}';sheetLote()`)}
+    ${op('📋', 'Planificación online', 'Una planificación que has hecho para un atleta. Pagada o pendiente.', "sheetPlan()")}
     ${op('💶', 'Otro cobro', 'Mensualidad, club, federación… cualquier otro ingreso.', "sheetIngreso()")}
     ${op('🧾', 'Gasto', 'Algo que has pagado tú (con foto del ticket).', "sheetGasto()")}
     ${op('📄', 'Facturas del mes', 'Haz las facturas de lo cobrado, una por cliente.', "FM=null;sheetFacturasMes()")}
@@ -1609,6 +1610,73 @@ async function borrarIngreso(id) {
   catch (e) { toast(e.message); }
 }
 
+/* =================== PLANIFICACIONES ONLINE =================== */
+// cada planificación que entregas es un trabajo que se cobra aparte: aquí ves las del mes y si están pagadas
+const tipoPlan = () => tiposList().find(t => /planific/i.test(t)) || 'Planificaciones mensuales';
+function viewPlanes(t) {
+  const ym = S.month, md = parseD(ym + '-01'), col = tipoColor(t);
+  const P = ING().filter(i => (i.fecha || '').slice(0, 7) === ym && lineasOf(i).some(l => l.tipo === t)).sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+  const pag = P.filter(cobrado), pen = P.filter(i => !cobrado(i));
+  const hab = [...new Set(ING().filter(i => lineasOf(i).some(l => l.tipo === t)).map(i => i.cliente_id))].filter(id => S.fin.clientes.some(c => c.id === id)).map(clienteOf).sort((a, b) => a.nombre.localeCompare(b.nombre));
+  const fila = i => { const c = clienteOf(i.cliente_id), d = parseD(i.fecha), L = lineasOf(i).filter(l => l.tipo === t), det = L.map(l => l.detalle).filter(Boolean).join(', ');
+    return `<div class="li" style="gap:10px"><button class="row grow" style="gap:10px;min-width:0;text-align:left;background:none;border:0;padding:0" onclick="sheetVerIngreso('${i.id}')"><span class="av" style="background:${c.color || '#6B6E75'}22;color:${c.color || '#6B6E75'}">${esc(initials(c.nombre))}</span><span class="col grow" style="gap:1px;min-width:0"><b style="font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.nombre)}</b><span class="muted" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${d.getDate()} ${MES_C[d.getMonth()]}${det ? ' · ' + esc(det) : ''}${cobrado(i) && i.metodo ? ' · ' + metNom(i.metodo) : ''}</span></span><b style="flex:none">${eur(partOf(i, t))}</b></button>
+      ${cobrado(i) ? '<span class="badge b-ok" style="flex:none">Pagada</span>' : `<button class="chip" style="background:var(--warnbg);color:var(--warn);height:32px;flex:none" onclick="sheetCobro('${i.id}')">Cobrar</button>`}</div>`; };
+  return `<div class="stack">
+    ${demoBanner()}
+    <div class="row"><button class="iconbtn" aria-label="Volver" onclick="go('resumen')">${ICON.left}</button>
+      <div class="chips grow">${tiposList().map(x => `<button class="chip ${x === t ? 'on' : ''}" style="${x === t ? '' : `background:${tipoColor(x)}1A;color:${tipoColor(x)}`}" onclick="S.tipoSel='${esc(x).replace(/'/g, '')}';render()">${esc(x)}</button>`).join('')}</div></div>
+    <div class="row between">
+      <button class="iconbtn" aria-label="Mes anterior" onclick="S.month=monthAdd(S.month,-1);render()">${ICON.left}</button>
+      <h1 style="font-size:22px;text-transform:capitalize">${MESES[md.getMonth()]} ${md.getFullYear()}</h1>
+      <button class="iconbtn" aria-label="Mes siguiente" onclick="S.month=monthAdd(S.month,1);render()">${ICON.right}</button>
+    </div>
+    <div class="hero" style="background:${col}">
+      <span style="font-size:13px;font-weight:700;color:#ffffffcc">Planificaciones online</span>
+      <span class="big" style="font-size:42px">${P.length} <span style="font-size:16px;font-weight:600">${P.length === 1 ? 'planificación' : 'planificaciones'}</span></span>
+      <div class="row" style="gap:8px;flex-wrap:wrap;font-size:13px;color:#ffffffdd"><span>${pag.length} pagada${pag.length === 1 ? '' : 's'} · ${eur0(sumI(pag))}</span>${pen.length ? `<span>·</span><span><b>${pen.length} sin pagar · ${eur0(sumI(pen))}</b></span>` : ''}</div>
+    </div>
+    <button class="btn primary" onclick="sheetPlan()">+ Nueva planificación</button>
+    ${pen.length ? `<span class="eyebrow">Sin pagar</span><div class="card" style="padding:4px 14px">${pen.map(fila).join('')}</div>` : ''}
+    <span class="eyebrow">${pen.length ? 'Pagadas' : 'Planificaciones de ' + MESES[md.getMonth()]}</span>
+    <div class="card" style="padding:4px 14px">${pag.length ? pag.map(fila).join('') : `<div class="empty">${P.length ? 'Ninguna pagada todavía.' : 'Aún no has apuntado ninguna planificación este mes.'}</div>`}</div>
+    ${hab.length ? `<span class="eyebrow">Tus atletas online</span><div class="chips" style="flex-wrap:wrap">${hab.map(c => `<button class="chip" style="background:var(--bg)" onclick="sheetPlan('${c.id}')">+ ${esc(c.nombre)}</button>`).join('')}</div><span class="muted" style="font-size:12px">Toca un atleta para apuntarle una planificación nueva con su último precio.</span>` : ''}
+  </div>`;
+}
+let PL = null;
+function sheetPlan(cid) {
+  const t = tipoPlan();
+  PL = { cid: cid || '', imp: cid ? String(lastPart(cid, t) || num(clienteOf(cid).tarifa) || '') : '', det: '', fecha: S.month === todayStr().slice(0, 7) ? todayStr() : S.month + '-01', forma: 'no' };
+  if (cid) { const h = metodoHabitual(cid); if (['efectivo', 'bizum', 'transferencia'].includes(h)) PL.forma = 'no'; }
+  renderPlan();
+}
+function renderPlan() {
+  const t = tipoPlan(), c = PL.cid ? clienteOf(PL.cid) : null;
+  openSheet(`<form class="stack" onsubmit="guardarPlan(event)">
+    <h1 style="font-size:22px">Nueva planificación online</h1>
+    ${c ? `<div class="row between" style="background:var(--bg);border-radius:14px;padding:8px 12px"><b>${esc(c.nombre)}</b><button type="button" class="chip" style="background:var(--card)" onclick="PL.cid='';renderPlan()">Cambiar</button></div>`
+      : `<div class="col" style="gap:6px"><span class="eyebrow">Atleta</span><div class="col" id="clipick" style="gap:6px">${cliLista([], [...S.fin.clientes].sort((a, b) => String(a.nombre).localeCompare(String(b.nombre))))}</div><div id="cliInfo"></div></div>`}
+    <div class="grid2"><label class="f">Precio (€)<input class="in" inputmode="decimal" value="${esc(PL.imp)}" oninput="PL.imp=this.value" style="font-weight:800;font-size:18px"></label><label class="f">Fecha<input class="in" type="date" value="${PL.fecha}" onchange="PL.fecha=this.value"></label></div>
+    <label class="f">Detalle (opcional)<input class="in" value="${esc(PL.det)}" oninput="PL.det=this.value" placeholder="Ej. Mesociclo diciembre · media maratón"></label>
+    <div class="col" style="gap:6px"><span class="eyebrow">¿Te la ha pagado?</span><div class="opt" style="flex-wrap:wrap">${[['no', 'Aún no'], ['efectivo', 'En mano'], ['bizum', 'Bizum'], ['transferencia', 'Transferencia']].map(([k, l]) => `<button type="button" class="${PL.forma === k ? 'on' : ''}" onclick="PL.forma='${k}';renderPlan()">${l}</button>`).join('')}</div></div>
+    <button class="btn primary" type="submit" id="plBtn">Guardar planificación</button>
+  </form>`);
+}
+async function guardarPlan(ev) {
+  ev.preventDefault();
+  const sel = document.querySelector('#clipick .chip.on');
+  if (!PL.cid && NCE && (NCE.nombre || '').trim() && !sel) { const c = await crearCliEvento(); if (!c) return; }
+  const cid = PL.cid || ((document.querySelector('#clipick .chip.on') || {}).dataset || {}).cid;
+  if (!cid) { toast('Elige el atleta'); return; }
+  const imp = num(PL.imp); if (!imp) { toast('Pon el precio'); return; }
+  const t = tipoPlan(), pag = PL.forma !== 'no', md = parseD(PL.fecha);
+  const det = (PL.det || '').trim() || 'Planificación ' + MESES[md.getMonth()];
+  const btn = $('#plBtn'); btn.disabled = true; btn.innerHTML = '<span class="spin"></span>';
+  try {
+    await saveIng({ id: uid(), fecha: PL.fecha, cliente_id: cid, concepto: det, importe: String(imp), cobrado: pag ? 'si' : 'no', fecha_cobro: pag ? PL.fecha : '', metodo: pag ? PL.forma : '', facturado: pag && (PL.forma === 'efectivo' || PL.forma === 'bizum') ? 'nunca' : 'no', num_factura: '', notas: '', lineas: JSON.stringify([{ tipo: t, importe: imp, detalle: det }]) }, pag ? 'Planificación apuntada' : 'Planificación apuntada · pendiente de pago');
+    const m = metaOf(cid); if (!m.tipo) await saveMeta(cid, Object.assign({}, m, { tipo: t }));
+    closeSheet(); S.tipoSel = t; render();
+  } catch (e) { toast(e.message); btn.disabled = false; btn.textContent = 'Guardar planificación'; }
+}
 /* =================== CONCEPTO (p. ej. Planificaciones) =================== */
 // última cantidad que un cliente pagó por un concepto (para rellenar)
 // precio por sesión × sesiones al mes (se guarda en la ficha del cliente)
@@ -1623,6 +1691,7 @@ function lastPart(cid, tipo, beforeYm) {
 }
 function viewConcepto() {
   if (!S.fin) return `<div class="stack">${demoBanner()}${finLoading()}</div>`;
+  if (/planific/i.test(S.tipoSel || tiposList()[0])) return viewPlanes(S.tipoSel || tiposList()[0]);
   const t = S.tipoSel || tiposList()[0], ym = S.month, md = parseD(ym + '-01'), col = tipoColor(t);
   const I = ING().filter(i => (i.fecha || '').slice(0, 7) === ym && lineasOf(i).some(l => l.tipo === t));
   const by = {}; I.forEach(i => { const o = by[i.cliente_id] = by[i.cliente_id] || { v: 0, ids: [], pend: 0 }; o.v += partOf(i, t); o.ids.push(i.id); if (!cobrado(i)) o.pend += partOf(i, t); });

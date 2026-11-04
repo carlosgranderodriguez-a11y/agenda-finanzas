@@ -121,3 +121,6 @@ Al abrirlo tocándolo, el widget pide también las finanzas (en la pantalla de i
 
 ## Clientes en lista al crear una cita (v89)
 En «Nuevo evento», los clientes salen en una lista con buscador: primero los del área elegida y luego todos, con sus iniciales. Escribe parte del nombre para filtrar. «+ Nuevo» crea uno sin salir de la cita y lo deja elegido. Pulsar Intro en el teclado crea el cliente (no envía la cita) y, si guardas la cita con el cliente nuevo a medio rellenar, primero lo crea (v91).
+
+## Planificaciones online (v92)
+El concepto de planificaciones ya no es «lo que planifico cobrar a fin de mes», sino las planificaciones online que haces: cada una se apunta cuando la entregas y se cobra aparte. La pantalla muestra cuántas has hecho en el mes, cuáles están **sin pagar** (botón «Cobrar») y cuáles **pagadas**, y abajo tus atletas online para apuntarles otra con un toque (con su último precio). «+ Nueva planificación» (también en el menú +): atleta (lista con buscador o «+ Nuevo»), precio, fecha, detalle opcional y si ya te la ha pagado (En mano · Bizum · Transferencia · Aún no).
