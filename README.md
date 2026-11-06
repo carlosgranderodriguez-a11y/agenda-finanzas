@@ -124,3 +124,4 @@ En «Nuevo evento», los clientes salen en una lista con buscador: primero los d
 
 ## Planificaciones online (v92)
 El concepto de planificaciones ya no es «lo que planifico cobrar a fin de mes», sino las planificaciones online que haces: cada una se apunta cuando la entregas y se cobra aparte. La pantalla muestra cuántas has hecho en el mes, cuáles están **sin pagar** (botón «Cobrar») y cuáles **pagadas**, y abajo tus atletas online para apuntarles otra con un toque (con su último precio). «+ Nueva planificación» (también en el menú +): atleta (lista con buscador o «+ Nuevo»), precio, fecha, detalle opcional y si ya te la ha pagado (En mano · Bizum · Transferencia · Aún no).
+Toda sesión sin pagar se ve igual («Sin pagar», y «· suelta apuntada» si ya tenía un cobro de «me debe»). Al cobrar lo pendiente, si alguna de esas sesiones ya tenía un cobro sin pagar apuntado, el pago nuevo lo sustituye (se avisa en la hoja) para que no cuente dos veces (v93).

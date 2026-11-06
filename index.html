@@ -183,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v92';
+const VERSION = 'v93';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -2886,6 +2886,9 @@ function sheetCobrarTramo(cid) {
   const P = tramoPend(cid).filter(x => x.d <= todayStr() || x.est.k === 'debe');
   sheetVenta(cid, P.length || 1, P.length ? P[0].d : todayStr());
   VT.pend = P.length;
+  // sesiones que ya tenían un cobro apuntado sin pagar (p. ej. una suelta de «me debe»): este pago lo sustituye
+  const st = estadoBono(cid), keys = new Set(P.map(x => evKey(x.e)));
+  VT.absorbe = st ? [...new Set(st.bonos.filter(b => !b.cobrado && b.ses.some(x => keys.has(evKey(x)))).map(b => b.ingId).concat(Object.keys(st.cub).filter(k => keys.has(k) && !cobrado(st.cub[k].i)).map(k => st.cub[k].i.id)))] : [];
   if (P.length) { VT.imp = String(Math.round(P.length * precioSesion(cid) * 100) / 100 || vtPrecio(cid, P.length) || ''); renderVenta(); }
 }
 function mesSesiones(ym) {
@@ -2901,7 +2904,7 @@ function mesSesiones(ym) {
     else {
       const st = stOf(c.id), x = st && st.est[k];
       if (x) est = x;
-      else { const ing = ingresoDeEvento(e); if (ing) est = cobrado(ing) ? { k: 'ok', txt: 'Pagada' } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' }; }
+      else { const ing = ingresoDeEvento(e); if (ing) est = cobrado(ing) ? { k: 'ok', txt: 'Pagada' } : { k: fut ? 'pend' : 'debe', txt: (fut ? 'Por cobrar' : 'Sin pagar') + ' · apuntada' }; }
     }
     out.push({ e, c, d: e.start.slice(0, 10), est });
   });
@@ -3063,9 +3066,9 @@ function estadoBono(cid, extra) {
   // estado de cada sesión, igual en todas las pantallas
   const est = {};
   ses.forEach(s => { const k = evKey(s), fut = s.start >= now, cv = cub[k];
-    if (cv) { const ok = cobrado(cv.i); est[k] = ok ? { k: 'ok', txt: cv.tipo === 'hasta' ? 'Pagada (hasta el ' + fmtLong(cv.h).replace(/ \d{4}$/, '') + ')' : 'Pagada' + (num(cv.i.importe) ? ' · ' + eur(num(cv.i.importe)) : '') } : { k: fut ? 'pend' : 'debe', txt: 'Apuntada · te debe' }; return; }
+    if (cv) { const ok = cobrado(cv.i); est[k] = ok ? { k: 'ok', txt: cv.tipo === 'hasta' ? 'Pagada (hasta el ' + fmtLong(cv.h).replace(/ \d{4}$/, '') + ')' : 'Pagada' + (num(cv.i.importe) ? ' · ' + eur(num(cv.i.importe)) : '') } : { k: fut ? 'pend' : 'debe', txt: (fut ? 'Por cobrar' : 'Sin pagar') + ' · apuntada' }; return; }
     const j = info.findIndex(b => b.ses.includes(s));
-    if (j >= 0) { const b = info[j], n = b.previas + b.ses.indexOf(s) + 1, tag = b.n === 1 ? 'Suelta' : 'Bono ' + n + '/' + b.n; est[k] = b.cobrado ? { k: 'ok', txt: tag + ' · pagado' } : { k: fut ? 'pend' : 'debe', txt: tag + ' · pendiente de pago' }; return; }
+    if (j >= 0) { const b = info[j], n = b.previas + b.ses.indexOf(s) + 1, tag = b.n === 1 ? 'Suelta' : 'Bono ' + n + '/' + b.n; est[k] = b.cobrado ? { k: 'ok', txt: tag + ' · pagado' } : { k: fut ? 'pend' : 'debe', txt: (fut ? 'Por cobrar' : 'Sin pagar') + ' · ' + tag.toLowerCase() + ' apuntada' + (b.n === 1 ? '' : 's') }; return; }
     est[k] = fut ? { k: 'pend', txt: 'Por cobrar' } : { k: 'debe', txt: 'Sin pagar' }; });
   return { bonos: info, activo: vivos[0] || null, quedan: vivos.reduce((s, b) => s + b.n - b.hechas, 0), reservadas: info.reduce((s, b) => s + b.reservadas, 0),
     sinBonoPast: sinBono.filter(s => s.start < now).length, sinBonoFut: sinBono.filter(s => s.start >= now).length, sinBono, ses, cub, est,
@@ -3212,7 +3215,7 @@ function vtPrecio(cid, n) { const m = metaOf(cid), c = clienteOf(cid); n = Math.
 function sheetVenta(cid, n, fecha) {
   const m = metaOf(cid), hab = metodoHabitual(cid);
   VT = { metodo: ['efectivo', 'bizum', 'transferencia'].includes(hab) ? hab : 'efectivo', cid, n: String(n), imp: '', manual: false, cobrado: 'si', tipo: m.tipo || (tiposList().includes('Entrenamientos personales') ? 'Entrenamientos personales' : tiposList()[0]), fecha: fecha || todayStr() };
-  VT.imp = String(vtPrecio(cid, n) || ''); renderVenta();
+  VT.imp = String(vtPrecio(cid, n) || ''); VT.absorbe = []; renderVenta();
 }
 // pago en un solo paso: cuántas sesiones paga · cómo (en mano / Bizum / transferencia / aún no) · importe
 function vtUnit() { const n = Math.max(1, Math.round(num(VT.n)) || 1), i = num(VT.imp); return i ? (n > 1 ? eurRaw(Math.round(i / n * 100) / 100, true) + ' por sesión' : '') : 'Pon el importe'; }
@@ -3225,6 +3228,7 @@ function renderVenta() {
   openSheet(`<form class="stack" onsubmit="guardarVenta(event)">
     <h1 style="font-size:22px">Cobrar sesiones · ${esc(c.nombre)}</h1>
     ${VT.pend ? `<span class="muted" style="font-size:13px">Tiene <b>${ses(VT.pend)} sin pagar</b> desde el ${esc(fmtLong(VT.fecha))}: ya están contadas abajo.</span>` : ''}
+    ${(VT.absorbe || []).length ? `<span style="font-size:12px;background:var(--warnbg);color:var(--warn);border-radius:10px;padding:8px 10px">Incluye ${VT.absorbe.map(id => { const i = ING().find(x => x.id === id); return i ? esc((i.concepto || 'cobro') + ' de ' + eur(num(i.importe)) + ' (' + fmtLong(i.fecha).replace(/ \d{4}$/, '') + ')') : ''; }).filter(Boolean).join(', ')} que tenías apuntado sin pagar: este pago lo sustituye y no contará dos veces.</span>` : ''}
     <div class="col" style="gap:6px"><span class="eyebrow">¿Por cuántas sesiones es el pago?</span>
       <div class="chips" style="flex-wrap:wrap">${chips.map(k => `<button type="button" class="chip ${k === n ? 'on' : ''}" style="${k === n ? '' : 'background:var(--bg)'};min-width:48px;justify-content:center" onclick="vtN(${k})">${k}</button>`).join('')}</div>
       <label class="f">Otro número<input class="in" inputmode="numeric" value="${esc(VT.n)}" oninput="VT.n=this.value;if(!VT.manual){VT.imp=String(vtPrecio(VT.cid,this.value)||'');const e=$('#vtImp');if(e)e.value=VT.imp}"></label></div>
@@ -3253,6 +3257,8 @@ async function guardarVenta(ev) {
   document.querySelectorAll('#sheet button').forEach(b => b.disabled = true);
   try {
     await saveIng(o, det + ' apuntado');
+    for (const id of (VT.absorbe || [])) { try { await api('deleteIngreso', { data: { id } }); S.fin.ingresos = S.fin.ingresos.filter(x => x.id !== id); } catch (e) {} }
+    if ((VT.absorbe || []).length) LS.set('af_fin_cache', S.fin);
     // recuerda precio/sesiones para la próxima vez
     const m = metaOf(VT.cid), nm = num(VT.previas) > 0 ? m : Object.assign({}, m, n === 1 ? { psuelta: String(imp) } : (num(m.nbono) && num(m.nbono) !== n ? {} : { nbono: String(n), pbono: String(imp) }), m.tipo ? {} : { tipo: VT.tipo });
     if (JSON.stringify(m) !== JSON.stringify(nm)) await saveMeta(VT.cid, nm);
