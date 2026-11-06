@@ -183,7 +183,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v93';
+const VERSION = 'v94';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -1187,6 +1187,7 @@ function sesEfectivoHTML(ym, cob, fila) {
     return `<div class="card stack" style="gap:6px;padding:12px 14px">
       <div class="row between"><button style="border:0;background:none;padding:0;text-align:left;font-size:15px;font-weight:800;color:inherit" onclick="sheetPagoCliente('${x.c.id}')">${esc(x.c.nombre)} ›</button><b>${eur(sumI(x.I))}</b></div>
       <span class="muted" style="font-size:12px">${res}</span>
+      ${x.c.id && ym === todayStr().slice(0, 7) ? cuentaHTML(x.c.id, true) : ''}
       ${x.I.length ? `<div style="border-top:1px solid var(--line)">${x.I.map(fila).join('')}</div>` : ''}
       ${x.L.length ? `<details><summary class="muted" style="font-size:12px;cursor:pointer;padding:4px 0">Ver sesiones</summary>${x.L.map(s => `<button class="row between" style="border:0;background:none;padding:4px 0;text-align:left;width:100%;gap:8px" onclick="abrirSesion('${esc(s.e.id)}','${s.e.start}')"><span style="font-size:13px">${diaCorto(s.d)} · ${hm(s.e.start)}</span><span class="badge ${s.est.k === 'ok' ? 'b-ok' : s.d <= todayStr() ? 'b-bad' : 'b-warn'}">${s.est.k === 'ok' ? 'Cobrada' : s.d <= todayStr() ? 'Sin cobrar' : 'Por cobrar'}</span></button>`).join('')}</details>` : ''}
       ${no ? `<button class="btn dark" style="height:44px" onclick="sheetCobrarTramo('${x.c.id}')">Cobrar ${ses(no)}${p ? ' · ' + eur(Math.round(no * p * 100) / 100) : ''}</button>` : ''}
@@ -1443,6 +1444,8 @@ function viewResumen() {
       <button class="stat" style="background:#DCE1F6;border:0;text-align:left" onclick="S.filter='previstos';S.tipoF='';S.q='';go('ingresos')"><span style="color:var(--accent)">Previsto · ${prevs.length}</span><span>${eur0(sumI(prevs))}</span><span style="font-size:11px;font-weight:500;color:var(--muted)">Aún no ha llegado la fecha</span></button>
     </div>
     ${lista(pend, 'Te deben', 'var(--warn)', 'pendientes')}
+    ${ym === todayStr().slice(0, 7) ? (() => { const L = S.fin.clientes.map(c => ({ c, k: cuentaCli(c.id) })).filter(x => x.k && x.k.deb.length).sort((a, b) => b.k.eDeb - a.k.eDeb); if (!L.length) return '';
+      return `<div class="card stack" style="gap:6px"><div class="row between"><b>Sesiones hechas sin pagar</b><b style="color:var(--bad)">${eur0(L.reduce((s, x) => s + x.k.eDeb, 0))}</b></div><span class="muted" style="font-size:12px">Se van sumando a su cuenta según las hace, hasta que te paguen.</span>${L.map(x => `<button class="li" onclick="sheetFicha('${x.c.id}')"><span class="col grow" style="gap:1px;text-align:left"><b style="font-size:14px">${esc(x.c.nombre)}</b><span class="muted" style="font-size:12px">${ses(x.k.deb.length)} sin pagar${x.k.fut.length ? ' · ' + x.k.fut.length + ' más hasta el domingo que viene' : ''}</span></span><b>${x.k.p ? eur(x.k.eDeb) : ''}</b></button>`).join('')}</div>`; })() : ''}
     ${lista(prevs, 'Previsto (no cuenta como deuda)', 'var(--accent)', 'previstos')}
     ${(() => { const q = cajaMes(S.month); const ms = METODOS.filter(([m]) => m !== 'tarjeta' || q.porM.tarjeta || q.gM.tarjeta); const sin = (q.porM[''] || 0) + (q.gM[''] || 0);
       return `<button class="card stack" style="border:0;text-align:left;width:100%;gap:10px" onclick="go('caja')">
@@ -2865,6 +2868,23 @@ function sinFacturaCli(cid) {
   const lim = addDays(todayStr(), -100); return ING().some(i => i.cliente_id === cid && cobrado(i) && (i.metodo === 'efectivo' || i.metodo === 'bizum') && cobroFecha(i) >= lim);
 }
 const usaTramos = cid => porTramos(cid) || !!hastaPagado(cid);
+// cuenta de un cliente que paga después: sesiones hechas sin pagar + las que vienen hasta el domingo de la semana que viene
+function cuentaCli(cid) {
+  const st = estadoBono(cid); if (!st) return null;
+  const p = precioSesion(cid), fin = addDays(mondayOf(todayStr()), 13);
+  const deb = st.ses.filter(s => (st.est[evKey(s)] || {}).k === 'debe'), fut = st.ses.filter(s => (st.est[evKey(s)] || {}).k === 'pend' && s.start.slice(0, 10) <= fin);
+  if (!deb.length && !fut.length) return null;
+  return { p, deb, fut, fin, eDeb: Math.round(deb.length * p * 100) / 100, eFut: Math.round(fut.length * p * 100) / 100 };
+}
+function cuentaHTML(cid, compacto) {
+  const k = cuentaCli(cid); if (!k) return '';
+  const dd = d => { const x = parseD(d); return DL[(x.getDay() + 6) % 7] + ' ' + x.getDate(); };
+  const lin = [];
+  if (k.deb.length) lin.push(`<div class="row between"><span>Lleva <b>${ses(k.deb.length)} sin pagar</b>${k.p ? ' × ' + eurRaw(k.p) : ''}</span><b style="color:var(--bad)">${k.p ? eur(k.eDeb) : ''}</b></div>`);
+  if (k.fut.length) lin.push(`<div class="row between"><span class="muted">+ ${ses(k.fut.length)} hasta el ${dd(k.fin)} (${k.fut.map(s => dd(s.start.slice(0, 10))).join(', ')})</span><span class="muted">${k.p ? '+' + eur(k.eFut) : ''}</span></div>`);
+  if (k.deb.length && k.fut.length && k.p) lin.push(`<div class="row between" style="border-top:1px solid var(--line);padding-top:4px"><span>Si te paga el ${dd(k.fin)}</span><b>${eur(k.eDeb + k.eFut)}</b></div>`);
+  return `<div class="col" style="gap:3px;font-size:13px;${compacto ? '' : 'background:var(--warnbg);border-radius:12px;padding:10px 12px'}">${compacto ? '' : '<span class="eyebrow" style="color:var(--warn)">Su cuenta</span>'}${lin.join('')}</div>`;
+}
 function precioSesion(cid) { const m = metaOf(cid), c = clienteOf(cid); return num(m.psesion) || num(m.psuelta) || num(c.tarifa) || 0; }
 /* ---- toca un cliente en «Efectivo y Bizum»: cambia en mano ⇄ Bizum de sus cobros del mes o apunta sus sesiones pendientes ---- */
 function sheetPagoCliente(cid) {
@@ -3113,6 +3133,7 @@ function sheetFicha(cid) {
       <div class="col grow"><h1 style="font-size:22px">${esc(c.nombre)}</h1><span class="muted" style="font-size:12px">En la agenda: «${esc(aliasOf(c))}»${m.area ? ' · ' + esc(catOf(m.area).nombre) : ''}</span></div>
       <button class="chip" style="background:var(--bg)" onclick="CC_back='ficha';sheetCliente('${cid}');CC_back='ficha'">Editar</button></div>
     ${st ? resumenAtleta(cid, st) : ''}
+    ${cuentaHTML(cid)}
     ${st ? `<div class="card stack" style="background:var(--bg);gap:10px">
       <div class="row between" style="align-items:flex-end"><div class="col"><span class="eyebrow">${a ? 'Bono actual' : 'Sin bono activo'}</span><span class="big" style="font-size:34px">${st.quedan} <span style="font-size:15px;font-weight:600">${st.quedan === 1 ? 'sesión' : 'sesiones'} ${st.quedan === 1 ? 'queda' : 'quedan'}</span></span></div>${S.loadingBonoEv ? '<span class="spin"></span>' : ''}</div>
       ${a ? dots(a.n, a.hechas, a.reservadas) + `<span class="muted" style="font-size:12px">Bono de ${a.n} · ${fmtLong(a.fecha)} · ${eur(a.importe)} · ${a.cobrado ? 'cobrado' : '<b style="color:var(--warn)">pendiente de cobro</b>'}</span>
