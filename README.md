@@ -128,3 +128,6 @@ Toda sesión sin pagar se ve igual («Sin pagar», y «· suelta apuntada» si y
 
 ## Cuenta de sesiones de quien paga después (v94)
 Para clientes que pagan cuando quieren (p. ej. Alvaro), cada sesión que hace se suma a su cuenta: en su ficha y en Efectivo y Bizum sale «Lleva N sesiones sin pagar × precio = total», las que vienen hasta el domingo de la semana que viene y cuánto sería si te paga entonces. En el Resumen del mes, «Sesiones hechas sin pagar» suma lo de todos. Al cobrar, «Cobrar sesiones» ya trae contadas las hechas.
+
+## Mover citas sin duplicados (v95)
+Al arrastrar una cita a otra hora ya no aparece repetida: si Google devuelve otra copia de la misma cita en la hora vieja (está en dos calendarios o aún no se ha actualizado), se pinta solo una vez en la hora nueva. En citas estrechas (dos a la vez) la etiqueta de área y hora va en una línea para que se vea el nombre.

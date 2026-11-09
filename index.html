@@ -93,7 +93,8 @@ textarea.in{height:auto;min-height:70px;padding:12px 14px;resize:vertical}
 .ev.drag::after{content:attr(data-lbl);position:absolute;right:8px;top:6px;background:var(--ink);color:#fff;font-size:12px;font-weight:800;border-radius:8px;padding:2px 7px}
 .ev{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:pan-y}
 .ev{position:absolute;border:0;border-radius:12px;padding:6px 10px;text-align:left;overflow:hidden;display:flex;flex-direction:column;gap:1px}
-.ev .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.ev .k{font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:none}
+.ev .t{overflow:hidden;text-overflow:ellipsis}
 .ev{justify-content:center}
 .ev .t{font-size:14px;font-weight:700;color:var(--ink);line-height:1.2}
 .ev .s{font-size:12px}
@@ -183,7 +184,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v94';
+const VERSION = 'v95';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -506,7 +507,8 @@ async function loadWeek(mon, force) {
     const tmps = (S.agenda[mon] || []).filter(e => e && e._tmp);
     const vistos = {}; r.events = r.events.filter(e => { const k = e.title + '|' + e.start + '|' + e.end; if (vistos[k]) return false; vistos[k] = 1; return true; });   // misma cita en dos calendarios
     S.agenda[mon] = r.events.concat(tmps.filter(t => !r.events.some(e => e.title === t.title && e.start === t.start)));
-    if (S.evOv) Object.keys(S.evOv).forEach(id => { const o = S.evOv[id]; if (Date.now() - o.t > 300000 || r.events.some(e => e.id === id && e.start === o.start)) delete S.evOv[id]; });
+    // la cita movida se da por buena cuando Google ya no devuelve ninguna copia suya en la hora vieja (puede estar en dos calendarios y una tarda más)
+    if (S.evOv) Object.keys(S.evOv).forEach(id => { const o = S.evOv[id]; if (Date.now() - o.t > 300000 || (r.events.some(e => e.id === id && e.start === o.start) && !r.events.some(e => e.id === id && e.start === o.from))) delete S.evOv[id]; });
     if (r.categorias && r.categorias.length) { S.cats = visibleCats(r.categorias); LS.set('af_cats', S.cats); }
     const keep = {}; Object.keys(S.agenda).sort().slice(-6).forEach(k => keep[k] = S.agenda[k]);
     LS.set('af_agenda_cache', keep);
@@ -596,8 +598,16 @@ function weekEvents(mon) {
   const R = clientAreaRules();
   const M = evAreaMap();
   const OV = S.evOv || {};
+  const vistos = {};
   return (S.agenda[mon] || []).filter(e => e && e.start).map(e => {
     const ov = OV[e.id]; if (ov && ov.from === e.start) e = Object.assign({}, e, { start: ov.start, end: ov.end });
+    return e;
+  }).filter(e => {
+    // tras mover una cita, la copia vieja (otro calendario o la que Google aún no ha actualizado) no se pinta dos veces
+    if (e.allDay) return true;
+    const k1 = 'i|' + e.id + '|' + e.start, k2 = 't|' + (e.title || '') + '|' + e.start + '|' + e.end;
+    if (vistos[k1] || vistos[k2]) return false; vistos[k1] = vistos[k2] = 1; return true;
+  }).map(e => {
     if (M[e.id] && S.cats.some(k => k.id === M[e.id])) return Object.assign({}, e, { cat: M[e.id] });
     if (e._tmp) return e;
     if (!R.length) return e;
