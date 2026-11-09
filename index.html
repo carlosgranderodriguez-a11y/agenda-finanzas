@@ -184,7 +184,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v95';
+const VERSION = 'v96';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -771,7 +771,7 @@ function sheetDetalle(id, start) {
     </div>
     <div class="row">
       ${e.allDay ? '' : `<button class="btn outline grow" onclick="sheetEditar('${esc(e.id)}','${e.start}')">Editar</button>`}
-      <button class="btn danger grow" onclick="borrarEvento('${esc(e.id)}','${esc(e.calId)}')">Borrar</button>
+      <button class="btn danger grow" onclick="borrarEvento('${esc(e.id)}','${esc(e.calId)}','${e.start}')">Borrar</button>
     </div>
   </div>`);
 }
@@ -818,7 +818,24 @@ async function asignarArea(id, start, area) {
     if (kwOn && kw.length >= 3) loadWeek(mondayOf(S.day), true);
   } catch (e) { toast(e.message); }
 }
-async function borrarEvento(id, calId) {
+// la misma cita puede estar en dos calendarios (la creas en uno e invitas al otro): si una copia se movió y la otra no, se ven dos.
+// Borrar cualquiera de ellas en Google borra la cita entera, así que «quitar el duplicado» es volver a juntarlas en la misma hora.
+function copiasDe(id, start) {
+  const mon = mondayOf(String(start).slice(0, 10));
+  return (S.agenda[mon] || []).filter(x => x && x.id === id && !x.allDay && !x._tmp);
+}
+async function borrarEvento(id, calId, start) {
+  const otra = start ? copiasDe(id, start).find(x => x.start !== start) : null;
+  if (otra) {
+    if (!await ask(`Esta cita está repetida: la otra copia está a las ${hm(otra.start)}. Si la borras, Google borra las dos. ¿Quitar solo este duplicado y dejarla a las ${hm(otra.start)}?`, 'Quitar duplicado')) return;
+    try {
+      const e = findEvent(id, start) || otra;
+      await api('updateEvent', { data: { id, calId: calId || '', title: e.title, start: otra.start.slice(0, 16), end: otra.end.slice(0, 16) } });
+      if (S.evOv) delete S.evOv[id];
+      closeSheet(); toast('Duplicado quitado'); markStale(); S._manualRefresh = true; loadWeek(mondayOf(S.day), true);
+    } catch (e) { toast(e.message); }
+    return;
+  }
   if (!await ask('¿Borrar este evento de tu Google Calendar?')) return;
   try { await api('deleteEvent', { data: { id, calId } }); closeSheet(); toast('Evento borrado'); markStale(); loadWeek(mondayOf(S.day), true); }
   catch (e) { toast(e.message); }
@@ -1023,7 +1040,10 @@ async function moverEvento(id, start, mins) {
   render(); toast('Movido a las ' + ns.slice(11));
   if (String(id).indexOf('tmp') === 0) return;
   try {
-    await api('updateEvent', { data: { id, calId: e.calId || '', title: e.title, start: ns, end: ne } });
+    // si la cita está en varios calendarios, se mueven todas las copias para que no se queden en horas distintas
+    const cals = [...new Set([e.calId || ''].concat(copiasDe(id, ns).map(x => x.calId || '')))];
+    await api('updateEvent', { data: { id, calId: cals[0], title: e.title, start: ns, end: ne } });
+    for (const c of cals.slice(1)) { try { await api('updateEvent', { data: { id, calId: c, title: e.title, start: ns, end: ne } }); } catch (x) {} }
     S.monthEv = {}; S.bonoRange = '';
     const k = LS.get('af_agenda_cache', {}); k[mon] = S.agenda[mon]; LS.set('af_agenda_cache', k);
   } catch (err) {

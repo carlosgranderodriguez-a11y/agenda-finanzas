@@ -131,3 +131,6 @@ Para clientes que pagan cuando quieren (p. ej. Alvaro), cada sesión que hace se
 
 ## Mover citas sin duplicados (v95)
 Al arrastrar una cita a otra hora ya no aparece repetida: si Google devuelve otra copia de la misma cita en la hora vieja (está en dos calendarios o aún no se ha actualizado), se pinta solo una vez en la hora nueva. En citas estrechas (dos a la vez) la etiqueta de área y hora va en una línea para que se vea el nombre.
+
+## Duplicados al mover y borrar (v96)
+Si una cita está en dos calendarios (la creas en uno e invitas al otro), al moverla se mueven las dos copias. Si ya hay un duplicado en otra hora, «Borrar» ya no borra la cita entera: ofrece «Quitar duplicado», que vuelve a poner esa copia a la hora de la otra.
