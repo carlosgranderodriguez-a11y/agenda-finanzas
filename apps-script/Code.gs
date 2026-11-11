@@ -31,7 +31,7 @@ var DEFAULT_CATS = [
 var DEFAULT_CONFIG = [
   ['calendarios', ''],           // vacío = todos tus calendarios; o nombres separados por comas
   ['calendario_nuevos', ''],     // calendario donde se crean eventos nuevos (vacío = principal)
-  ['emisor_nombre', 'Carlos Grande Rodríguez'], ['emisor_nif', ''], ['emisor_direccion', ''], ['emisor_email', ''], ['emisor_iban', ''],
+  ['emisor_nombre', ''], ['emisor_nif', ''], ['emisor_direccion', ''], ['emisor_email', ''], ['emisor_iban', ''],
   ['serie_factura', ''], ['siguiente_numero', '1'], ['iva_defecto', '21'], ['irpf_empresas', '15'], ['nota_factura', ''],
   ['gestor_nombre', ''], ['gestor_email', '']
 ];
