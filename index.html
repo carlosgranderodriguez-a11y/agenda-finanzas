@@ -184,7 +184,7 @@ pre.code{background:var(--dark);color:#E8E9EC;border-radius:14px;padding:12px;fo
 /* =========================================================
    AGENDA · FINANZAS — Carlos Grande
    ========================================================= */
-const VERSION = 'v96';
+const VERSION = 'v97';
 const DEFAULT_API = 'https://script.google.com/macros/s/AKfycbyZM7ZBlN7ibU6Z72bBFwcFIzRF5v0oBH6jaqyvqRREasCss710YgSD7P4zWucRdVi8TQ/exec';
 const LS = {
   get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -847,6 +847,7 @@ function sheetEvento(atH) {
   openSheet(`<form class="stack" onsubmit="crearEvento(event)">
     <div class="row between"><h1 style="font-size:24px">Nuevo evento</h1><button type="button" class="chip" style="background:var(--bg)" onclick="sheetBloqueo('', '${d}', ${atH != null ? atH : 'null'})">🚫 Sala ocupada</button></div>
     <label class="f">Título<input class="in" name="title" placeholder="Ej. Readaptación · Marco (o elige cliente abajo)"></label>
+    <div class="opt" id="tipoCita"><button type="button" class="on" data-v="ses" onclick="pickTipoCita(this)">Sesión / trabajo</button><button type="button" data-v="reu" onclick="pickTipoCita(this)">🤝 Reunión · no se cobra</button></div>
     <div class="f" style="display:flex;flex-direction:column;gap:6px;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">Área
       <div class="chips" id="catpick" style="flex-wrap:wrap">${S.cats.map((c, i) => `<button type="button" class="chip ${i === 0 ? 'on' : ''}" data-cat="${c.id}" style="${i === 0 ? '' : `background:${c.bg};color:${c.fg}`}" onclick="pickCat(this)">${esc(c.nombre)}</button>`).join('')}</div>
     </div>
@@ -861,7 +862,7 @@ function sheetEvento(atH) {
       <div class="opt" id="repOpt"><button type="button" class="on" data-v="0" onclick="pickRep(this)">No</button><button type="button" data-v="1" onclick="pickRep(this)">Cada semana</button><button type="button" data-v="2" onclick="pickRep(this)">Cada 2 semanas</button></div>
       <div class="grid2" id="repHasta" style="display:none;align-items:end"><label class="f">Hasta<input class="in" type="date" name="hasta" value="${addDays(d, 90)}"></label><label class="row" style="gap:8px;font-size:13px;height:46px"><input type="checkbox" name="sinfin" style="width:20px;height:20px;accent-color:var(--dark)" onchange="this.form.hasta.disabled=this.checked"> Sin fecha de fin</label></div>
     </div>
-    <div class="col" style="gap:6px"><span class="eyebrow">¿Te paga ahora sesiones? (opcional)</span>
+    <div class="col" id="pagaSec" style="gap:6px"><span class="eyebrow">¿Te paga ahora sesiones? (opcional)</span>
       <div class="opt" id="bonoOpt" style="flex-wrap:wrap"><button type="button" class="on" data-v="0" onclick="pickBono(this)">No</button><button type="button" data-v="efectivo" onclick="pickBono(this)">En mano</button><button type="button" data-v="bizum" onclick="pickBono(this)">Bizum</button><button type="button" data-v="transferencia" onclick="pickBono(this)">Transferencia</button><button type="button" data-v="no" onclick="pickBono(this)">Me debe</button></div>
       <div class="col" id="bonoMas" style="display:none;gap:8px">
         <div class="grid2"><label class="f">¿Cuántas sesiones?<input class="in" name="bn" inputmode="numeric" value="4" oninput="this.form.bp.value=vtPrecio((document.querySelector('#clipick .chip.on')||{dataset:{}}).dataset.cid,this.value)||this.form.bp.value"></label><label class="f">Importe (€)<input class="in" name="bp" inputmode="decimal" style="font-weight:800"></label></div>
@@ -1072,6 +1073,11 @@ function quitarPendiente(id, start) {
   S.agenda[mon] = S.agenda[mon].filter(x => x !== e); closeSheet(); render(); toast('Cita quitada: no se guardará');
 }
 let tmpRid = '';
+function pickTipoCita(b) {
+  document.querySelectorAll('#tipoCita button').forEach(x => x.classList.toggle('on', x === b));
+  const reu = b.dataset.v === 'reu', p = $('#pagaSec'); if (p) p.style.display = reu ? 'none' : '';
+  if (reu) { const o = document.querySelector('#bonoOpt button[data-v="0"]'); if (o) pickBono(o); }
+}
 async function crearEvento(ev) {
   ev.preventDefault();
   const f = ev.target, btn = f.querySelector('button[type=submit]');
@@ -1082,6 +1088,7 @@ async function crearEvento(ev) {
   let title = f.title.value.trim();
   if (cli) { if (!title) title = cli.nombre; else if (!title.toLowerCase().includes(cli.nombre.trim().toLowerCase())) title += ' · ' + cli.nombre; }
   if (!title) { toast('Pon un título o elige un cliente'); return; }
+  if (((document.querySelector('#tipoCita button.on') || {}).dataset || {}).v === 'reu' && !noCobra({ title })) title = 'Reunión · ' + title;
   if (f.end.value <= f.start.value) { toast('La hora de fin debe ser posterior'); return; }
   const bv = ((document.querySelector('#bonoOpt button.on') || {}).dataset || {}).v || '0'; let bono = null;
   if (bv !== '0') {
@@ -2941,6 +2948,8 @@ function sheetCobrarTramo(cid) {
   VT.absorbe = st ? [...new Set(st.bonos.filter(b => !b.cobrado && b.ses.some(x => keys.has(evKey(x)))).map(b => b.ingId).concat(Object.keys(st.cub).filter(k => keys.has(k) && !cobrado(st.cub[k].i)).map(k => st.cub[k].i.id)))] : [];
   if (P.length) { VT.imp = String(Math.round(P.length * precioSesion(cid) * 100) / 100 || vtPrecio(cid, P.length) || ''); renderVenta(); }
 }
+// reuniones, llamadas… con un cliente: no son sesiones, no se cobran ni gastan bono
+const noCobra = e => /(^|[^a-záéíóúñ])(reuni[oó]n|reuniones|meeting|llamada|videollamada)([^a-záéíóúñ]|$)/i.test((e && e.title) || '');
 function mesSesiones(ym) {
   const evs = S.monthEv[ym]; if (!evs || !S.fin) return null;
   const excl = new Set(sesExcl()), now = nowLocal(), cache = {}, seen = new Set();
@@ -2948,6 +2957,7 @@ function mesSesiones(ym) {
   const out = [];
   evs.filter(e => e && e.start && !e.allDay && e.start.slice(0, 7) === ym).sort((a, b) => a.start.localeCompare(b.start)).forEach(e => {
     const k = evKey(e); if (seen.has(k)) return; seen.add(k);
+    if (noCobra(e)) return;
     const c = cliDeEvento(e); if (!c) return;
     const fut = e.start >= now; let est = { k: 'sin', txt: 'Sin cobro asociado' };
     if (excl.has(k)) est = { k: 'excl', txt: 'No cuenta' };
@@ -3101,7 +3111,7 @@ function estadoBono(cid, extra) {
   const start = fechas.sort()[0];
   const seen = new Set();
   const pool = (S.bonoEv || []).concat(...Object.values(S.agenda).filter(Array.isArray), extra || [], ...Object.values(S.monthEv || {}).filter(Array.isArray));
-  const ses = pool.filter(e => e && !e.allDay && e.start && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
+  const ses = pool.filter(e => e && !e.allDay && e.start && !noCobra(e) && titleHas(e, c) && e.start.slice(0, 10) >= start && !excl.has(evKey(e)) && !seen.has(evKey(e)) && seen.add(evKey(e))).sort((a, b) => a.start.localeCompare(b.start));
   const cub = {}, resto = [];
   ses.forEach(s => { const k = evKey(s), d = s.start.slice(0, 10), ie = P.evs[k];
     if (ie) { cub[k] = { tipo: 'ev', i: ie }; return; }
@@ -3319,6 +3329,7 @@ async function guardarVenta(ev) {
 // en la ficha de un evento: a qué bono cuenta y opción de no descontarlo
 function bonoEnEvento(e) {
   if (!S.fin) return '';
+  if (noCobra(e)) return `<div class="card" style="background:var(--bg);font-size:13px">🤝 <b>Reunión</b>: no cuenta como sesión ni se cobra.</div>`;
   const c = cliDeEvento(e); if (!c || !estadoBono(c.id)) return '';
   const excl = sesExcl().includes(evKey(e));
   let txt = '', extra = '';

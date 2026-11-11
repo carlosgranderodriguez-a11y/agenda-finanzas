@@ -134,3 +134,7 @@ Al arrastrar una cita a otra hora ya no aparece repetida: si Google devuelve otr
 
 ## Duplicados al mover y borrar (v96)
 Si una cita está en dos calendarios (la creas en uno e invitas al otro), al moverla se mueven las dos copias. Si ya hay un duplicado en otra hora, «Borrar» ya no borra la cita entera: ofrece «Quitar duplicado», que vuelve a poner esa copia a la hora de la otra.
+
+## Reuniones: no se cobran (v97)
+En «Nuevo evento», arriba: «Sesión / trabajo» o «🤝 Reunión · no se cobra». Si es reunión, se oculta el apartado de pago y el título empieza por «Reunión ·». Cualquier cita cuyo título lleve «reunión», «llamada», «videollamada» o «meeting» no cuenta como sesión: no gasta bono, no suma a lo que debe el cliente y no sale como «sin pagar». En su ficha pone «Reunión: no cuenta como sesión ni se cobra».
+(sw.js se había quedado vacío en v96; restaurado.)
